@@ -2,8 +2,8 @@
 Download qwedsacf/competition_math from HuggingFace and save as JSONL.
 
 Saves:
-    train.jsonl  — 7500 examples (dataset train split)
-    valid.jsonl  — 5000 examples (dataset test split)
+    train.jsonl  — 7500 examples
+    valid.jsonl  — 5000 examples
 
 Usage:
     uv run python scripts/download_math_data.py --output-dir data/math
@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import typer
-from datasets import load_dataset
+from huggingface_hub import snapshot_download
 
 from cs336_alignment.drgrpo_grader import extract_boxed_answer
 
@@ -34,35 +35,39 @@ def main(
 ):
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    typer.echo("Downloading qwedsacf/competition_math (streaming) ...")
-    ds = load_dataset("qwedsacf/competition_math", split="train", streaming=True)
+    typer.echo("Downloading qwedsacf/competition_math parquet files ...")
+    local_dir = snapshot_download(
+        repo_id="qwedsacf/competition_math",
+        repo_type="dataset",
+        ignore_patterns=["*.md", "*.gitattributes"],
+    )
 
-    train_path = output_dir / "train.jsonl"
-    valid_path = output_dir / "valid.jsonl"
+    parquet_files = sorted(Path(local_dir).glob("**/*.parquet"))
+    typer.echo(f"Found {len(parquet_files)} parquet file(s)")
 
-    train_count = valid_count = 0
-    with open(train_path, "w") as f_train, open(valid_path, "w") as f_valid:
-        for i, example in enumerate(ds):
-            answer = extract_boxed_answer(example["solution"])
-            record = {
-                "problem": example["problem"],
-                "solution": example["solution"],
-                "answer": answer,
-                "level": example["level"],
-                "type": example["type"],
-            }
-            line = json.dumps(record) + "\n"
-            if i < TRAIN_SIZE:
-                f_train.write(line)
-                train_count += 1
-            elif i < TRAIN_SIZE + VALID_SIZE:
-                f_valid.write(line)
-                valid_count += 1
-            else:
-                break
+    table = pq.ParquetDataset([str(f) for f in parquet_files]).read()
+    rows = table.to_pydict()
+    total = len(rows["problem"])
+    typer.echo(f"Total examples: {total}")
 
-    typer.echo(f"Saved {train_count} examples to {train_path}")
-    typer.echo(f"Saved {valid_count} examples to {valid_path}")
+    splits = [
+        ("train", range(0, TRAIN_SIZE)),
+        ("valid", range(TRAIN_SIZE, TRAIN_SIZE + VALID_SIZE)),
+    ]
+    for split_name, idx_range in splits:
+        out_path = output_dir / f"{split_name}.jsonl"
+        with open(out_path, "w") as f:
+            for i in idx_range:
+                answer = extract_boxed_answer(rows["solution"][i])
+                record = {
+                    "problem": rows["problem"][i],
+                    "solution": rows["solution"][i],
+                    "answer": answer,
+                    "level": rows["level"][i],
+                    "type": rows["type"][i],
+                }
+                f.write(json.dumps(record) + "\n")
+        typer.echo(f"Saved {len(list(idx_range))} examples to {out_path}")
 
 
 if __name__ == "__main__":
