@@ -1,5 +1,9 @@
 """
-Download the EleutherAI/hendrycks_math dataset from HuggingFace and save as JSONL.
+Download qwedsacf/competition_math from HuggingFace and save as JSONL.
+
+Saves:
+    train.jsonl  — 7500 examples (dataset train split)
+    valid.jsonl  — 5000 examples (dataset test split)
 
 Usage:
     uv run python scripts/download_math_data.py --output-dir data/math
@@ -16,15 +20,11 @@ from cs336_alignment.drgrpo_grader import extract_boxed_answer
 
 app = typer.Typer()
 
-SUBSETS = [
-    "algebra",
-    "counting_and_probability",
-    "geometry",
-    "intermediate_algebra",
-    "number_theory",
-    "prealgebra",
-    "precalculus",
-]
+# Maps output filename → HuggingFace split name
+SPLIT_MAP = {
+    "train": "train",   # 7500 examples
+    "valid": "test",    # 5000 examples
+}
 
 
 @app.command()
@@ -34,24 +34,15 @@ def main(
         "--output-dir",
         help="Directory to save the JSONL files.",
     ),
-    splits: list[str] = typer.Option(
-        ["train", "test"],
-        "--splits",
-        help="Dataset splits to download.",
-    ),
 ):
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for split in splits:
-        split_records = []
-        for subset in SUBSETS:
-            typer.echo(f"Downloading {subset} / {split} ...")
-            ds = load_dataset(
-                "EleutherAI/hendrycks_math",
-                subset,
-                split=split,
-                trust_remote_code=True,
-            )
+    for out_name, hf_split in SPLIT_MAP.items():
+        typer.echo(f"Downloading qwedsacf/competition_math / {hf_split} -> {out_name}.jsonl ...")
+        ds = load_dataset("qwedsacf/competition_math", split=hf_split)
+
+        out_path = output_dir / f"{out_name}.jsonl"
+        with open(out_path, "w") as f:
             for example in ds:
                 answer = extract_boxed_answer(example["solution"])
                 record = {
@@ -60,15 +51,10 @@ def main(
                     "answer": answer,
                     "level": example["level"],
                     "type": example["type"],
-                    "subset": subset,
                 }
-                split_records.append(record)
-
-        out_path = output_dir / f"{split}.jsonl"
-        with open(out_path, "w") as f:
-            for record in split_records:
                 f.write(json.dumps(record) + "\n")
-        typer.echo(f"Saved {len(split_records)} examples to {out_path}")
+
+        typer.echo(f"Saved {len(ds)} examples to {out_path}")
 
 
 if __name__ == "__main__":
