@@ -6,7 +6,7 @@ Saves:
     valid.jsonl  — 5000 examples
 
 Usage:
-    uv run python scripts/download_math_data.py --output-dir data/math
+    uv run python scripts/download_math_data.py --output-dir data/MATH
 """
 from __future__ import annotations
 

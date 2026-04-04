@@ -6,10 +6,10 @@ generates responses with vLLM, and reports accuracy using the reward functions
 from drgrpo_grader.py.
 
 Usage:
-    uv run python scripts/math_baseline.py \\
-        --model Qwen/Qwen2.5-Math-1.5B \\
-        --data-path data/math/test.jsonl \\
-        --prompt-type r1_zero \\
+    uv run python scripts/math_baseline.py \
+        --model Qwen/Qwen2.5-Math-1.5B \
+        --data-path data/MATH/valid.jsonl \
+        --prompt-type r1_zero \
         --output-path outputs/math_baseline_results.jsonl
 """
 from __future__ import annotations
