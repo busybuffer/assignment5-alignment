@@ -58,6 +58,11 @@ def tokenize_prompt_and_output(
     }
 
 
+def _log_softmax(logits: torch.Tensor) -> torch.Tensor:
+    """Numerically stable log-softmax over the last dimension."""
+    return logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+
+
 def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     """Get the entropy of the next-token predictions over the vocabulary dimension.
 
@@ -67,10 +72,7 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor of shape (batch_size, sequence_length)
     """
-    # log_softmax via logsumexp for numerical stability:
-    # log p_i = logits_i - logsumexp(logits)
-    log_probs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
-    # H = -sum(p_i * log p_i) = -sum(exp(log p_i) * log p_i)
+    log_probs = _log_softmax(logits)
     return -(log_probs.exp() * log_probs).sum(dim=-1)
 
 
@@ -95,11 +97,11 @@ def get_response_log_probs(
     """
     logits = model(input_ids).logits  # (batch, seq_len, vocab)
 
-    # log p(x_t | x_{<t}): gather log-prob of the actual next token (labels)
-    log_probs_all = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+    # compute log-softmax once and reuse for both log_probs and entropy
+    log_probs_all = _log_softmax(logits)
     log_probs = log_probs_all.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
 
     result = {"log_probs": log_probs}
     if return_token_entropy:
-        result["token_entropy"] = compute_entropy(logits)
+        result["token_entropy"] = -(log_probs_all.exp() * log_probs_all).sum(dim=-1)
     return result
