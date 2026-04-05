@@ -76,6 +76,30 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     return -(log_probs.exp() * log_probs).sum(dim=-1)
 
 
+def sft_microbatch_train_step(
+    policy_log_probs: torch.Tensor,
+    response_mask: torch.Tensor,
+    gradient_accumulation_steps: int,
+    normalize_constant: float = 1.0,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """Forward-and-backward pass on a single SFT microbatch.
+
+    Args:
+        policy_log_probs: (batch_size, sequence_length) per-token log-probs.
+        response_mask: (batch_size, sequence_length) 1 for response tokens, 0 otherwise.
+        gradient_accumulation_steps: number of microbatches per optimizer step.
+        normalize_constant: divisor for the masked sum.
+
+    Returns:
+        (loss, metadata): loss is the unscaled scalar for logging;
+        backward is called on loss / gradient_accumulation_steps.
+    """
+    batch_size = policy_log_probs.shape[0]
+    loss = -masked_normalize(policy_log_probs, response_mask, normalize_constant) / (batch_size * gradient_accumulation_steps)
+    loss.backward()
+    return loss.detach(), {}
+
+
 def masked_normalize(
     tensor: torch.Tensor,
     mask: torch.Tensor,
