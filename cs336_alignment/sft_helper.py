@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from transformers import PreTrainedTokenizerBase
+from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 
 def tokenize_prompt_and_output(
@@ -72,3 +72,34 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     log_probs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
     # H = -sum(p_i * log p_i) = -sum(exp(log p_i) * log p_i)
     return -(log_probs.exp() * log_probs).sum(dim=-1)
+
+
+def get_response_log_probs(
+    model: PreTrainedModel,
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    return_token_entropy: bool = False,
+) -> dict[str, torch.Tensor]:
+    """Get per-token conditional log-probabilities from a causal language model.
+
+    Args:
+        model: HuggingFace causal LM.
+        input_ids: shape (batch_size, sequence_length)
+        labels: shape (batch_size, sequence_length), shifted input_ids.
+        return_token_entropy: if True, also return per-token entropy.
+
+    Returns:
+        dict with:
+            "log_probs": shape (batch_size, sequence_length)
+            "token_entropy": shape (batch_size, sequence_length), only if return_token_entropy=True
+    """
+    logits = model(input_ids).logits  # (batch, seq_len, vocab)
+
+    # log p(x_t | x_{<t}): gather log-prob of the actual next token (labels)
+    log_probs_all = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+    log_probs = log_probs_all.gather(dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+
+    result = {"log_probs": log_probs}
+    if return_token_entropy:
+        result["token_entropy"] = compute_entropy(logits)
+    return result
