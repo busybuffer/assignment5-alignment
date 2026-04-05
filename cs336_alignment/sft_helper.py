@@ -56,3 +56,19 @@ def tokenize_prompt_and_output(
         "labels": labels,
         "response_mask": response_mask,
     }
+
+
+def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
+    """Get the entropy of the next-token predictions over the vocabulary dimension.
+
+    Args:
+        logits: torch.Tensor of shape (batch_size, sequence_length, vocab_size)
+
+    Returns:
+        torch.Tensor of shape (batch_size, sequence_length)
+    """
+    # log_softmax via logsumexp for numerical stability:
+    # log p_i = logits_i - logsumexp(logits)
+    log_probs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+    # H = -sum(p_i * log p_i) = -sum(exp(log p_i) * log p_i)
+    return -(log_probs.exp() * log_probs).sum(dim=-1)
