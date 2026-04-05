@@ -8,30 +8,15 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizerBase
 
+from cs336_alignment.sft_helper import tokenize_prompt_and_output
+
 
 def run_tokenize_prompt_and_output(
     prompt_strs: list[str],
     output_strs: list[str],
     tokenizer: PreTrainedTokenizerBase,
 ) -> dict[str, Tensor]:
-    """Tokenize the prompt and output strings, and construct a mask that is 1
-    for the response tokens and 0 for other tokens (prompt or padding).
-
-    Args:
-        prompt_strs: list[str], the prompt strings.
-        output_strs: list[str], the output strings.
-        tokenizer: PreTrainedTokenizer, the tokenizer to use.
-
-    Returns:
-        dict[str, torch.Tensor]:
-            "input_ids": torch.Tensor of shape (batch_size, max(prompt_and_output_lens) - 1):
-                the tokenized prompt and output strings, with the final token sliced off.
-            "labels": torch.Tensor of shape (batch_size, max(prompt_and_output_lens) - 1):
-                shifted input_ids (i.e., the input_ids without the first token).
-            "response_mask": torch.Tensor of shape (batch_size, max(prompt_and_output_lens) - 1):
-                a mask on the response tokens in `labels`.
-    """
-    raise NotImplementedError
+    return tokenize_prompt_and_output(prompt_strs, output_strs, tokenizer)
 
 
 def run_compute_group_normalized_rewards(
