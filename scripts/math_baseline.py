@@ -10,13 +10,22 @@ Usage:
         --model Qwen/Qwen2.5-Math-1.5B \
         --data-path data/MATH/valid.jsonl \
         --prompt-type r1_zero \
-        --output-path outputs/math_baseline_results.jsonl
+        --output-path outputs/math_baseline_results_r1_zero.jsonl \
+        --dtype float16
+
+    uv run python scripts/math_baseline.py \
+        --model Qwen/Qwen2.5-Math-1.5B \
+        --data-path data/MATH/valid.jsonl \
+        --prompt-type question_only \
+        --output-path outputs/math_baseline_results_question_only.jsonl \
+        --dtype float16
+
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Callable, List
 
 import typer
 from vllm import LLM, SamplingParams
@@ -56,85 +65,21 @@ def load_jsonl(path: Path) -> list[dict]:
     return records
 
 
-@app.command()
-def main(
-    model: str = typer.Option(
-        "Qwen/Qwen2.5-Math-1.5B",
-        "--model",
-        help="HuggingFace model ID or local path.",
-    ),
-    data_path: Path = typer.Option(
-        ...,
-        "--data-path",
-        help="Path to the JSONL dataset file.",
-    ),
-    prompt_type: str = typer.Option(
-        "r1_zero",
-        "--prompt-type",
-        help="Prompt type: 'r1_zero' or 'question_only'.",
-    ),
-    output_path: Path = typer.Option(
-        Path("outputs/math_baseline_results.jsonl"),
-        "--output-path",
-        help="Path to save per-example results as JSONL.",
-    ),
-    max_examples: int = typer.Option(
-        -1,
-        "--max-examples",
-        help="Maximum number of examples to evaluate (-1 for all).",
-    ),
-    max_tokens: int = typer.Option(
-        2048,
-        "--max-tokens",
-        help="Maximum number of tokens to generate.",
-    ),
-    temperature: float = typer.Option(
-        0.0,
-        "--temperature",
-        help="Sampling temperature (0.0 = greedy).",
-    ),
-    tensor_parallel_size: int = typer.Option(
-        1,
-        "--tensor-parallel-size",
-        help="Number of GPUs to use for tensor parallelism.",
-    ),
-    fast_grading: bool = typer.Option(
-        True,
-        "--fast-grading/--no-fast-grading",
-        help="Use fast grading (skips math_verify, slightly less accurate).",
-    ),
-):
-    if prompt_type not in PROMPT_FILES:
-        typer.echo(f"Unknown prompt type '{prompt_type}'. Choose from: {list(PROMPT_FILES)}")
-        raise typer.Exit(1)
-
-    typer.echo(f"Loading data from {data_path} ...")
-    examples = load_jsonl(data_path)
-    if max_examples > 0:
-        examples = examples[:max_examples]
-    typer.echo(f"Loaded {len(examples)} examples.")
-
-    prompt_template = load_prompt_template(prompt_type)
-    reward_fn = REWARD_FNS[prompt_type]
-
-    prompts = [prompt_template.format(question=ex["problem"]) for ex in examples]
-
-    typer.echo(f"Loading model {model} with vLLM ...")
-    llm = LLM(
-        model=model,
-        tensor_parallel_size=tensor_parallel_size,
-        trust_remote_code=True,
-    )
-
-    sampling_params = SamplingParams(
-        temperature=temperature,
-        max_tokens=max_tokens,
-        stop=["</answer>"] if prompt_type == "r1_zero" else None,
-        include_stop_str_in_output=True,
-    )
-
+def evaluate_vllm(
+    vllm_model: LLM,
+    reward_fn: Callable[[str, str], dict[str, float]],
+    prompts: List[str],
+    eval_sampling_params: SamplingParams,
+    examples: list[dict],
+    output_path: Path,
+    fast_grading: bool = True,
+) -> None:
+    """
+    Evaluate a language model on a list of prompts,
+    compute evaluation metrics, and serialize results to disk.
+    """
     typer.echo("Generating responses ...")
-    outputs = llm.generate(prompts, sampling_params)
+    outputs = vllm_model.generate(prompts, eval_sampling_params)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -187,6 +132,106 @@ def main(
         typer.echo(f"  {ex_type:<35} {acc:.4f} ({stats['correct']}/{stats['total']})")
 
     typer.echo(f"\nPer-example results saved to {output_path}")
+
+
+@app.command()
+def main(
+    model: str = typer.Option(
+        "Qwen/Qwen2.5-Math-1.5B",
+        "--model",
+        help="HuggingFace model ID or local path.",
+    ),
+    data_path: Path = typer.Option(
+        ...,
+        "--data-path",
+        help="Path to the JSONL dataset file.",
+    ),
+    prompt_type: str = typer.Option(
+        "r1_zero",
+        "--prompt-type",
+        help="Prompt type: 'r1_zero' or 'question_only'.",
+    ),
+    output_path: Path = typer.Option(
+        Path("outputs/math_baseline_results.jsonl"),
+        "--output-path",
+        help="Path to save per-example results as JSONL.",
+    ),
+    max_examples: int = typer.Option(
+        -1,
+        "--max-examples",
+        help="Maximum number of examples to evaluate (-1 for all).",
+    ),
+    max_tokens: int = typer.Option(
+        2048,
+        "--max-tokens",
+        help="Maximum number of tokens to generate.",
+    ),
+    temperature: float = typer.Option(
+        1.0,
+        "--temperature",
+        help="Sampling temperature (0.0 = greedy).",
+    ),
+    top_p: float = typer.Option(
+        1.0,
+        "--top-p",
+        help="Top-p (nucleus) sampling probability.",
+    ),
+    tensor_parallel_size: int = typer.Option(
+        1,
+        "--tensor-parallel-size",
+        help="Number of GPUs to use for tensor parallelism.",
+    ),
+    dtype: str = typer.Option(
+        "auto",
+        "--dtype",
+        help="Model dtype: 'auto', 'float16', 'bfloat16'. Use float16 for T4 (compute capability < 8.0).",
+    ),
+    fast_grading: bool = typer.Option(
+        True,
+        "--fast-grading/--no-fast-grading",
+        help="Use fast grading (skips math_verify, slightly less accurate).",
+    ),
+):
+    if prompt_type not in PROMPT_FILES:
+        typer.echo(f"Unknown prompt type '{prompt_type}'. Choose from: {list(PROMPT_FILES)}")
+        raise typer.Exit(1)
+
+    typer.echo(f"Loading data from {data_path} ...")
+    examples = load_jsonl(data_path)
+    if max_examples > 0:
+        examples = examples[:max_examples]
+    typer.echo(f"Loaded {len(examples)} examples.")
+
+    prompt_template = load_prompt_template(prompt_type)
+    reward_fn = REWARD_FNS[prompt_type]
+
+    prompts = [prompt_template.format(question=ex["problem"]) for ex in examples]
+
+    typer.echo(f"Loading model {model} with vLLM ...")
+    llm = LLM(
+        model=model,
+        tensor_parallel_size=tensor_parallel_size,
+        trust_remote_code=True,
+        dtype=dtype,
+    )
+
+    sampling_params = SamplingParams(
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+        stop=["</answer>"] if prompt_type == "r1_zero" else None,
+        include_stop_str_in_output=True,
+    )
+
+    evaluate_vllm(
+        vllm_model=llm,
+        reward_fn=reward_fn,
+        prompts=prompts,
+        eval_sampling_params=sampling_params,
+        examples=examples,
+        output_path=output_path,
+        fast_grading=fast_grading,
+    )
 
 
 if __name__ == "__main__":
