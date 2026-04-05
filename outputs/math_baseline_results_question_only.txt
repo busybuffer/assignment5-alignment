@@ -1,0 +1,13 @@
+=== Results ===
+Total examples:    5000
+Accuracy:          0.4626 (2313/5000)
+Format rate:       0.8408 (4204/5000)
+
+--- Accuracy by type ---
+  Algebra                             0.6040 (717/1187)
+  Counting & Probability              0.4051 (192/474)
+  Geometry                            0.4008 (192/479)
+  Intermediate Algebra                0.3621 (327/903)
+  Number Theory                       0.4074 (220/540)
+  Prealgebra                          0.5224 (455/871)
+  Precalculus                         0.3846 (210/546)
