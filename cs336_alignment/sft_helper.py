@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import torch
+from vllm import LLM, SamplingParams
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 
@@ -149,3 +152,106 @@ def get_response_log_probs(
     if return_token_entropy:
         result["token_entropy"] = -(log_probs_all.exp() * log_probs_all).sum(dim=-1)
     return result
+
+
+def log_generations(
+    vllm_model: LLM,
+    prompts: list[str],
+    ground_truths: list[str],
+    reward_fn: Callable[[str, str], dict[str, float]],
+    sampling_params: SamplingParams,
+    tokenizer: PreTrainedTokenizerBase,
+    label: str = "eval",
+) -> dict[str, object]:
+    """Generate responses and log per-example and aggregate metrics.
+
+    Args:
+        vllm_model: vLLM LLM instance for generation.
+        prompts: list of input prompt strings.
+        ground_truths: list of ground-truth answer strings (same length as prompts).
+        reward_fn: callable(response, ground_truth) -> dict with keys
+            "reward", "format_reward", "answer_reward".
+        sampling_params: vLLM SamplingParams to use for generation.
+        tokenizer: tokenizer used to measure response length in tokens.
+        label: short string tag printed in log headers.
+
+    Returns:
+        dict with per-example records and aggregate metrics.
+    """
+    outputs = vllm_model.generate(prompts, sampling_params)
+    responses = [out.outputs[0].text for out in outputs]
+
+    records = []
+    total_reward = correct_lengths = incorrect_lengths = 0.0
+    n_correct = n_incorrect = 0
+    all_lengths = []
+    all_entropies = []
+
+    for vllm_out, prompt, response, ground_truth in zip(outputs, prompts, responses, ground_truths):
+        reward_dict = reward_fn(response, ground_truth)
+        response_token_ids = tokenizer.encode(response, add_special_tokens=False)
+        resp_len = len(response_token_ids)
+
+        # Approximate per-token entropy from vLLM logprobs if available.
+        # vLLM only returns the chosen token's log-prob, so we use H ≈ -log p(chosen)
+        # as a proxy (this equals the negative log-likelihood per token).
+        token_entropy = None
+        lp = vllm_out.outputs[0].logprobs
+        if lp:
+            token_log_probs = torch.tensor(
+                [list(step.values())[0].logprob for step in lp], dtype=torch.float32
+            )
+            token_entropy = float(-token_log_probs.mean())
+
+        is_correct = reward_dict["answer_reward"] == 1.0
+        all_lengths.append(resp_len)
+        if is_correct:
+            correct_lengths += resp_len
+            n_correct += 1
+        else:
+            incorrect_lengths += resp_len
+            n_incorrect += 1
+        total_reward += reward_dict["reward"]
+        if token_entropy is not None:
+            all_entropies.append(token_entropy)
+
+        records.append({
+            "prompt": prompt,
+            "response": response,
+            "ground_truth": ground_truth,
+            "reward": reward_dict["reward"],
+            "format_reward": reward_dict["format_reward"],
+            "answer_reward": reward_dict["answer_reward"],
+            "response_length": resp_len,
+            "avg_token_entropy": token_entropy,
+        })
+
+    n = len(records)
+    metrics = {
+        "avg_reward": total_reward / n,
+        "avg_response_length": sum(all_lengths) / n,
+        "avg_response_length_correct": correct_lengths / n_correct if n_correct else float("nan"),
+        "avg_response_length_incorrect": incorrect_lengths / n_incorrect if n_incorrect else float("nan"),
+        "avg_token_entropy": sum(all_entropies) / len(all_entropies) if all_entropies else float("nan"),
+        "n_correct": n_correct,
+        "n_total": n,
+    }
+
+    # --- pretty-print ---
+    sep = "=" * 70
+    print(f"\n{sep}\n[{label}] Generation log ({n} examples)\n{sep}")
+    for i, rec in enumerate(records):
+        print(f"\n--- Example {i+1} ---")
+        print(f"  Prompt:        {rec['prompt'][:120]}")
+        print(f"  Response:      {rec['response'][:200]}")
+        print(f"  Ground truth:  {rec['ground_truth']}")
+        print(f"  Reward:        {rec['reward']:.3f}  "
+              f"(format={rec['format_reward']:.1f}, answer={rec['answer_reward']:.1f})")
+        print(f"  Length:        {rec['response_length']} tokens  |  "
+              f"Entropy: {rec['avg_token_entropy']}")
+    print(f"\n{sep}\n[{label}] Aggregate metrics")
+    for k, v in metrics.items():
+        print(f"  {k:<40} {v}")
+    print(sep)
+
+    return {"records": records, "metrics": metrics}
