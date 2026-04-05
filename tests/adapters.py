@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizerBase
 
-from cs336_alignment.sft_helper import compute_entropy, get_response_log_probs, tokenize_prompt_and_output
+from cs336_alignment.sft_helper import compute_entropy, get_response_log_probs, masked_normalize, tokenize_prompt_and_output
 
 
 def run_tokenize_prompt_and_output(
@@ -252,7 +252,7 @@ def run_masked_normalize(
         torch.Tensor, the normalized sum, where masked elements
             (mask=0) don't contribute to the sum.
     """
-    raise NotImplementedError
+    return masked_normalize(tensor, mask, normalize_constant, dim)
 
 
 """

@@ -76,6 +76,26 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     return -(log_probs.exp() * log_probs).sum(dim=-1)
 
 
+def masked_normalize(
+    tensor: torch.Tensor,
+    mask: torch.Tensor,
+    normalize_constant: float,
+    dim: int | None = None,
+) -> torch.Tensor:
+    """Sum masked elements along dim and divide by normalize_constant.
+
+    Args:
+        tensor: torch.Tensor to sum and normalize.
+        mask: same shape as tensor; 1 = include, 0 = exclude.
+        normalize_constant: divisor for normalization.
+        dim: dimension to sum along; if None, sum over all dimensions.
+
+    Returns:
+        torch.Tensor: normalized sum of masked elements.
+    """
+    return (tensor * mask).sum(dim=dim) / normalize_constant
+
+
 def get_response_log_probs(
     model: PreTrainedModel,
     input_ids: torch.Tensor,
