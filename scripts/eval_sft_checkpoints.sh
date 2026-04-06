@@ -32,4 +32,17 @@ for CKPT_DIR in outputs/sft_full outputs/sft_128 outputs/sft_256 outputs/sft_512
 done
 
 echo ""
-echo "All done. Results in outputs/eval/"
+echo "=============================="
+echo "Summary"
+echo "=============================="
+for f in outputs/eval/*.jsonl; do
+    [ -f "$f" ] || continue
+    NAME=$(basename "$f" .jsonl)
+    python3 -c "
+import json
+lines = [json.loads(l) for l in open('$f')]
+correct = sum(l['answer_reward'] == 1.0 for l in lines)
+total = len(lines)
+print(f'  {\"$NAME\":<30} {correct/total:.4f}  ({correct}/{total})')
+"
+done
