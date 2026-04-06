@@ -7,9 +7,9 @@ Uses one GPU for the policy model and a second for the vLLM eval instance.
 Usage (2x H100):
     # Full dataset
     # effective batch size = 64 * 2 = 128; ~35 GB on policy GPU
-    uv run python scripts/train_sft.py \
+    python scripts/train_sft.py \
         --run-name sft_full \
-        --lr 5e-5 --batch-size 64 --grad-accum-steps 2 \
+        --lr 5e-5 --batch-size 16 --grad-accum-steps 8 \
         --num-epochs 3 --eval-interval 30 \
         --policy-device cuda:0 --vllm-device cuda:1
 
@@ -233,7 +233,9 @@ def main(
     # ------------------------------------------------------------------ model
     typer.echo(f"Loading policy on {policy_device} ...")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    policy = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16)
+    policy = AutoModelForCausalLM.from_pretrained(
+    model_id, torch_dtype=torch.bfloat16,
+    attn_implementation="flash_attention_2")
     policy = policy.to(policy_device)
     policy.train()
 
