@@ -54,14 +54,15 @@ echo ""
 echo "=============================="
 echo "Summary"
 echo "=============================="
-for f in outputs/eval/*.jsonl; do
-    [ -f "$f" ] || continue
-    NAME=$(basename "$f" .jsonl)
-    python3 -c "
-import json
-lines = [json.loads(l) for l in open('$f')]
-correct = sum(l['answer_reward'] == 1.0 for l in lines)
-total = len(lines)
-print(f'  {\"$NAME\":<30} {correct/total:.4f}  ({correct}/{total})')
+python3 -c "
+import json, glob
+rows = []
+for f in glob.glob('outputs/eval/*.jsonl'):
+    lines = [json.loads(l) for l in open(f)]
+    correct = sum(l['answer_reward'] == 1.0 for l in lines)
+    total = len(lines)
+    name = f.split('/')[-1].replace('.jsonl', '')
+    rows.append((correct / total, name, correct, total))
+for acc, name, correct, total in sorted(rows, reverse=True):
+    print(f'  {name:<30} {acc:.4f}  ({correct}/{total})')
 "
-done
