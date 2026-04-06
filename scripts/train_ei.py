@@ -10,28 +10,33 @@ Algorithm (per EI step):
   6. Evaluate on validation set
 
 Usage (2x H100):
-    # Baseline: G=4, sft_epochs=1, db_size=1024
+    # Baseline: G=4, sft_epochs=1, db_size=512
     python scripts/train_ei.py \
-        --run-name ei_G4_e1_db1024 \
-        --num-rollouts 4 --sft-epochs 1 --db-size 1024 \
+        --run-name ei_G4_e1_db512 \
+        --num-rollouts 4 --sft-epochs 1 --db-size 512 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # More rollouts
     python scripts/train_ei.py \
-        --run-name ei_G8_e1_db1024 \
-        --num-rollouts 8 --sft-epochs 1 --db-size 1024 \
+        --run-name ei_G8_e1_db512 \
+        --num-rollouts 8 --sft-epochs 1 --db-size 512 \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    python scripts/train_ei.py \
+        --run-name ei_G16_e1_db512 \
+        --num-rollouts 16 --sft-epochs 1 --db-size 512 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # More SFT epochs
     python scripts/train_ei.py \
-        --run-name ei_G4_e2_db1024 \
-        --num-rollouts 4 --sft-epochs 2 --db-size 1024 \
+        --run-name ei_G4_e2_db512 \
+        --num-rollouts 4 --sft-epochs 2 --db-size 512 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Larger batch
     python scripts/train_ei.py \
-        --run-name ei_G4_e1_db2048 \
-        --num-rollouts 4 --sft-epochs 1 --db-size 2048 \
+        --run-name ei_G4_e1_db1024 \
+        --num-rollouts 4 --sft-epochs 1 --db-size 1024 \
         --policy-device cuda:0 --vllm-device cuda:1
 """
 from __future__ import annotations

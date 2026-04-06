@@ -11,7 +11,8 @@ DATA_PATH="data/MATH/validation.jsonl"
 mkdir -p outputs/eval
 
 (
-  for CKPT_DIR in outputs/sft_full outputs/sft_256 outputs/sft_1024; do
+  # for CKPT_DIR in outputs/sft_full outputs/sft_256 outputs/sft_1024; do
+  for CKPT_DIR in outputs/ei_G4_e1_db512 outputs/ei_G4_e2_db512 outputs/ei_G4_e1_db1024; do
     if [ ! -d "$CKPT_DIR" ]; then
       echo "Skipping $CKPT_DIR (not found)"
       continue
@@ -30,7 +31,8 @@ mkdir -p outputs/eval
 ) &
 
 (
-  for CKPT_DIR in outputs/sft_128 outputs/sft_512 outputs/sft_filtered_correct; do
+  # for CKPT_DIR in outputs/sft_128 outputs/sft_512 outputs/sft_filtered_correct; do
+  for CKPT_DIR in outputs/ei_G8_e1_db512 outputs/ei_G16_e1_db512; do
     if [ ! -d "$CKPT_DIR" ]; then
       echo "Skipping $CKPT_DIR (not found)"
       continue
