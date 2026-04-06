@@ -10,7 +10,7 @@ Usage (2x H100):
     python scripts/train_sft.py \
         --run-name sft_full \
         --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
-        --num-epochs 3 --eval-interval 30 \
+        --num-epochs 5 --eval-interval 30 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Dataset size sweep (more epochs for small datasets)
@@ -249,6 +249,7 @@ def main(
         max_tokens=eval_max_tokens,
         stop=["</answer>"],
         include_stop_str_in_output=True,
+        logprobs=1,
     )
 
     # ------------------------------------------------------------------ train
