@@ -6,30 +6,30 @@ Uses one GPU for the policy model and a second for the vLLM eval instance.
 
 Usage (2x H100):
     # Full dataset
-    # effective batch size = 64 * 2 = 128; ~35 GB on policy GPU
+    # effective batch size = 8 * 4 = 32; ~35 GB on policy GPU
     python scripts/train_sft.py \
         --run-name sft_full \
-        --lr 5e-5 --batch-size 16 --grad-accum-steps 8 \
+        --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
         --num-epochs 3 --eval-interval 30 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Dataset size sweep (more epochs for small datasets)
     for N in 128 256 512 1024; do
         EPOCHS=$([[ $N -le 256 ]] && echo 8 || echo 5)
-        uv run python scripts/train_sft.py \
+        python scripts/train_sft.py \
             --run-name sft_$N \
             --max-examples $N \
-            --lr 5e-5 --batch-size 64 --grad-accum-steps 2 \
+            --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
             --num-epochs $EPOCHS --eval-interval 20 \
             --policy-device cuda:0 --vllm-device cuda:1
     done
 
     # Filtered (correct answers only, 1408/1767 examples)
-    uv run python scripts/train_sft.py \
+    python scripts/train_sft.py \
         --run-name sft_filtered_correct \
         --filter-correct \
-        --lr 5e-5 --batch-size 64 --grad-accum-steps 2 \
-        --num-epochs 3 --eval-interval 30 \
+        --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
+        --num-epochs 5 --eval-interval 30 \
         --policy-device cuda:0 --vllm-device cuda:1
 """
 from __future__ import annotations
