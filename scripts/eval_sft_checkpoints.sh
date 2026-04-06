@@ -27,8 +27,7 @@ for CKPT_DIR in outputs/sft_full outputs/sft_128 outputs/sft_256 outputs/sft_512
         --data-path "$DATA_PATH" \
         --output-path "$OUTPUT_PATH" \
         --max-tokens 1024 \
-        --temperature 1.0 \
-        --top-p 1.0
+        --temperature 0.0
 done
 
 echo ""

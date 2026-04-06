@@ -29,7 +29,7 @@ Usage (2x H100):
         --run-name sft_filtered_correct \
         --filter-correct \
         --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
-        --num-epochs 5 --eval-interval 30 \
+        --num-epochs 3 --eval-interval 30 \
         --policy-device cuda:0 --vllm-device cuda:1
 """
 from __future__ import annotations
