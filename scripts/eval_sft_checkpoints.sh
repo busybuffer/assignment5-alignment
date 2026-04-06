@@ -3,32 +3,52 @@
 # Usage: bash scripts/eval_sft_checkpoints.sh
 #
 # Results are saved to outputs/eval/{run_name}.jsonl
+# Uses two GPUs in parallel: cuda:0 and cuda:1
 
 set -e
 
 DATA_PATH="data/MATH/validation.jsonl"
-DEVICE="cuda:1"
+mkdir -p outputs/eval
 
-for CKPT_DIR in outputs/sft_full outputs/sft_128 outputs/sft_256 outputs/sft_512 outputs/sft_1024 outputs/sft_filtered_correct; do
+(
+  for CKPT_DIR in outputs/sft_full outputs/sft_256 outputs/sft_1024; do
     if [ ! -d "$CKPT_DIR" ]; then
-        echo "Skipping $CKPT_DIR (not found)"
-        continue
+      echo "Skipping $CKPT_DIR (not found)"
+      continue
     fi
-
     RUN_NAME=$(basename "$CKPT_DIR")
-    OUTPUT_PATH="outputs/eval/${RUN_NAME}.jsonl"
-
     echo "=============================="
-    echo "Evaluating: $RUN_NAME"
+    echo "[GPU 0] Evaluating: $RUN_NAME"
     echo "=============================="
-
-    CUDA_VISIBLE_DEVICES="${DEVICE#cuda:}" python scripts/math_baseline.py \
+    CUDA_VISIBLE_DEVICES=0 python scripts/math_baseline.py \
         --model "$CKPT_DIR" \
         --data-path "$DATA_PATH" \
-        --output-path "$OUTPUT_PATH" \
+        --output-path "outputs/eval/${RUN_NAME}.jsonl" \
         --max-tokens 1024 \
         --temperature 0.0
-done
+  done
+) &
+
+(
+  for CKPT_DIR in outputs/sft_128 outputs/sft_512 outputs/sft_filtered_correct; do
+    if [ ! -d "$CKPT_DIR" ]; then
+      echo "Skipping $CKPT_DIR (not found)"
+      continue
+    fi
+    RUN_NAME=$(basename "$CKPT_DIR")
+    echo "=============================="
+    echo "[GPU 1] Evaluating: $RUN_NAME"
+    echo "=============================="
+    CUDA_VISIBLE_DEVICES=1 python scripts/math_baseline.py \
+        --model "$CKPT_DIR" \
+        --data-path "$DATA_PATH" \
+        --output-path "outputs/eval/${RUN_NAME}.jsonl" \
+        --max-tokens 1024 \
+        --temperature 0.0
+  done
+) &
+
+wait
 
 echo ""
 echo "=============================="
