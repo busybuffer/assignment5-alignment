@@ -25,8 +25,7 @@ for CKPT_DIR in outputs/ei_G4_e1_db512 outputs/ei_G4_e2_db512 outputs/ei_G8_e1_d
         --data-path "$DATA_PATH" \
         --output-path "outputs/eval/${RUN_NAME}.jsonl" \
         --max-tokens 1024 \
-        --temperature 1.0 \
-        --top-p 1.0
+        --temperature 0.0
 done
 
 echo ""
