@@ -26,7 +26,7 @@ VLLM_DEVICE="${VLLM_DEVICE:-cuda:1}"
 
 # Edit this list to match your compute budget (fewer points = fewer GPU-hours).
 LEARNING_RATES=(
-  "3e-6"
+  # "3e-6"
   # "5e-6"
   "1e-5"
   "3e-5"
