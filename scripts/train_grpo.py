@@ -181,7 +181,7 @@ def main(
     sampling_max_tokens: int = typer.Option(1024, "--sampling-max-tokens"),
     epochs_per_rollout_batch: int = typer.Option(1, "--epochs-per-rollout-batch"),
     train_batch_size: int = typer.Option(256, "--train-batch-size"),
-    gradient_accumulation_steps: int = typer.Option(32, "--gradient-accumulation-steps"),
+    gradient_accumulation_steps: int = typer.Option(64, "--gradient-accumulation-steps"),
     gpu_memory_utilization: float = typer.Option(0.85, "--gpu-memory-utilization"),
     loss_type: str = typer.Option(
         "reinforce_with_baseline",
