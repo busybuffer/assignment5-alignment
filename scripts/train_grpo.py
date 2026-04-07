@@ -12,22 +12,37 @@ Learning-rate sweep (one run per job; use the same ``--wandb-group`` to compare 
 Running (from repo root, after ``uv sync`` and ``wandb login``):
 
     # Default hyperparameters, 2 GPUs (policy + vLLM)
-     python scripts/train_grpo.py \\
-        --run-name grpo_rwb \\
+     python scripts/train_grpo.py \
+        --run-name grpo_rwb \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # No baseline: optimize with per-rollout raw reward from the grader
-     python scripts/train_grpo.py \\
-        --run-name grpo_no_bl \\
-        --loss-type no_baseline \\
+     python scripts/train_grpo.py \
+        --run-name grpo_no_bl \
+        --loss-type no_baseline \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Off-policy style: multiple epochs per rollout; use GRPO-Clip (reuse frozen old log-probs)
-     python scripts/train_grpo.py \\
-        --run-name grpo_clip_offp \\
-        --loss-type grpo_clip \\
-        --epochs-per-rollout-batch 2 \\
-        --cliprange 0.2 \\
+     python scripts/train_grpo.py \
+        --run-name grpo_clip_offp \
+        --loss-type grpo_clip \
+        --epochs-per-rollout-batch 2 \
+        --cliprange 0.2 \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    # Length normalization comparison (grpo_length_normalization):
+    #   Run A: masked_mean (per-token average, default)
+     python scripts/train_grpo.py \
+        --run-name grpo_lengnorm_mean \
+        --length-norm masked_mean \
+        --wandb-group grpo_lengnorm_sweep \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    #   Run B: masked_normalize (per-sequence sum, no length penalty)
+     python scripts/train_grpo.py \
+        --run-name grpo_lengnorm_normalize \
+        --length-norm masked_normalize \
+        --wandb-group grpo_lengnorm_sweep \
         --policy-device cuda:0 --vllm-device cuda:1
 """
 from __future__ import annotations
@@ -189,6 +204,11 @@ def main(
         help="no_baseline | reinforce_with_baseline | grpo_clip (off-policy)",
     ),
     use_std_normalization: bool = typer.Option(True, "--use-std-normalization/--no-std-normalization"),
+    length_norm: str = typer.Option(
+        "masked_mean",
+        "--length-norm",
+        help="masked_mean (per-token avg) | masked_normalize (per-sequence sum, no length penalty).",
+    ),
     cliprange: float = typer.Option(0.2, "--cliprange", help="PPO-style clip for grpo_clip."),
     max_seq_len: int = typer.Option(2048, "--max-seq-len"),
     val_examples: int = typer.Option(1024, "--val-examples", help=">=1024 recommended."),
@@ -255,6 +275,7 @@ def main(
             "n_microbatches_per_rollout_batch": n_microbatches_per_rollout_batch,
             "gpu_memory_utilization": gpu_memory_utilization,
             "loss_type": loss_type,
+            "length_norm": length_norm,
             "use_std_normalization": use_std_normalization,
             "optimizer": "AdamW",
             "weight_decay": 0.0,
@@ -409,6 +430,7 @@ def main(
                     advantages=adv_b[sl] if loss_type != "no_baseline" else None,
                     old_log_probs=old_slice,
                     cliprange=cliprange if loss_type == "grpo_clip" else None,
+                    length_norm=length_norm,
                 )
 
                 mb_total += 1

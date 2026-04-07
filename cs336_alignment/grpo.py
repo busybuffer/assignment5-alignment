@@ -132,8 +132,15 @@ def grpo_microbatch_train_step(
     advantages: torch.Tensor | None = None,
     old_log_probs: torch.Tensor | None = None,
     cliprange: float | None = None,
+    length_norm: Literal["masked_mean", "masked_normalize"] = "masked_mean",
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    """Masked average per-token policy loss, scaled for gradient accumulation; calls ``backward``."""
+    """Masked per-token policy loss, scaled for gradient accumulation; calls ``backward``.
+
+    length_norm controls how the per-token losses are aggregated across a sequence:
+      - "masked_mean": divide by total response token count (equal weight per token).
+      - "masked_normalize": divide by batch_size only (sum over tokens; longer responses
+        contribute more gradient signal).
+    """
     batch_size = policy_log_probs.shape[0]
     per_token_loss, metadata = compute_policy_gradient_loss(
         policy_log_probs=policy_log_probs,
@@ -144,8 +151,12 @@ def grpo_microbatch_train_step(
         cliprange=cliprange,
     )
     m = response_mask.to(dtype=per_token_loss.dtype)
-    denom = m.sum().clamp(min=1e-8)
-    aggregated = (per_token_loss * m).sum() / denom
+    if length_norm == "masked_mean":
+        denom = m.sum().clamp(min=1e-8)
+        aggregated = (per_token_loss * m).sum() / denom
+    else:  # masked_normalize: sum tokens, normalize by sequence count only
+        aggregated = (per_token_loss * m).sum() / batch_size
+        denom = m.sum().clamp(min=1e-8)  # still used for clip_fraction below
     loss = aggregated / (batch_size * gradient_accumulation_steps)
     loss.backward()
 
