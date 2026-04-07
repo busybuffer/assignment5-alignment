@@ -2,7 +2,12 @@
 GRPO training on MATH (Qwen2.5-Math-1.5B) with vLLM rollouts.
 
 Uses the ``r1_zero`` prompt and stops generation at ``</answer>`` (see ``SamplingParams``).
-Validation metrics (e.g. ``eval/avg_reward``) are logged to Weights & Biases; chart them there.
+Validation metrics are logged to Weights & Biases (including ``eval/accuracy``,
+``eval/avg_answer_reward`` for answer-only signal, ``eval/avg_format_reward``, ``eval/avg_reward``).
+
+Learning-rate sweep (one run per job; use the same ``--wandb-group`` to compare curves):
+
+    bash scripts/grpo_lr_sweep.sh
 
 Running (from repo root, after ``uv sync`` and ``wandb login``):
 
@@ -10,12 +15,6 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
     uv run python scripts/train_grpo.py \\
         --run-name grpo_rwb \\
         --policy-device cuda:0 --vllm-device cuda:1
-
-    # Larger validation set and more frequent eval (handout suggests >=1024 val examples)
-    uv run python scripts/train_grpo.py \\
-        --run-name grpo_math \\
-        --policy-device cuda:0 --vllm-device cuda:1 \\
-        --val-examples 1024 --val-every 5
 
     # No baseline: optimize with per-rollout raw reward from the grader
     uv run python scripts/train_grpo.py \\
@@ -144,10 +143,16 @@ def run_validation(
         label=f"grpo_step={grpo_step}",
     )
     metrics = result["metrics"]
+    records = result["records"]
     accuracy = metrics["n_correct"] / metrics["n_total"]
+    n_val = len(records)
+    avg_answer_reward = sum(r["answer_reward"] for r in records) / n_val
+    avg_format_reward = sum(r["format_reward"] for r in records) / n_val
     wandb.log({
         "eval/accuracy": accuracy,
         "eval/avg_reward": metrics["avg_reward"],
+        "eval/avg_answer_reward": avg_answer_reward,
+        "eval/avg_format_reward": avg_format_reward,
         "eval/avg_response_length": metrics["avg_response_length"],
         "eval/avg_token_entropy": metrics["avg_token_entropy"],
         "grpo_step": grpo_step,
@@ -157,7 +162,7 @@ def run_validation(
         table.add_data(rec["prompt"][:300], rec["response"][:500], rec["ground_truth"], rec["reward"])
     wandb.log({"eval/generations": table, "grpo_step": grpo_step})
     policy.train()
-    return {"accuracy": accuracy, "metrics": metrics, "records": result["records"]}
+    return {"accuracy": accuracy, "metrics": metrics, "records": records}
 
 
 @app.command()
@@ -192,6 +197,16 @@ def main(
     vllm_device: str = typer.Option("cuda:1", "--vllm-device"),
     seed: int = typer.Option(42, "--seed"),
     wandb_project: str = typer.Option("cs336-grpo", "--wandb-project"),
+    wandb_group: str | None = typer.Option(
+        None,
+        "--wandb-group",
+        help="Optional W&B group name so multiple runs appear together (e.g. LR sweeps).",
+    ),
+    wandb_tags: str = typer.Option(
+        "",
+        "--wandb-tags",
+        help="Comma-separated W&B tags (e.g. lr_sweep,1e-5).",
+    ),
 ):
     assert train_batch_size % gradient_accumulation_steps == 0, (
         "train_batch_size must be divisible by gradient_accumulation_steps"
@@ -201,6 +216,11 @@ def main(
     n_prompts_per_rollout_batch = rollout_batch_size // group_size
     assert train_batch_size >= group_size, "train_batch_size must be >= group_size"
     n_microbatches_per_rollout_batch = rollout_batch_size // micro_train_batch_size
+    if epochs_per_rollout_batch == 1:
+        assert train_batch_size == rollout_batch_size, (
+            "On-policy (epochs_per_rollout_batch=1): set train_batch_size == rollout_batch_size "
+            f"(got {train_batch_size} vs {rollout_batch_size})"
+        )
 
     if loss_type not in ("no_baseline", "reinforce_with_baseline", "grpo_clip"):
         raise typer.BadParameter(f"Unknown loss_type: {loss_type}")
@@ -212,22 +232,34 @@ def main(
     out_dir.mkdir(parents=True, exist_ok=True)
     rollout_log_path = out_dir / "rollout_samples.jsonl"
 
+    tags = [t.strip() for t in wandb_tags.split(",") if t.strip()]
     wandb.init(
         project=wandb_project,
         name=run_name,
+        group=wandb_group,
+        tags=tags or None,
         config={
             "model_id": model_id,
             "n_grpo_steps": n_grpo_steps,
             "learning_rate": learning_rate,
+            "advantage_eps": advantage_eps,
             "rollout_batch_size": rollout_batch_size,
             "group_size": group_size,
+            "sampling_temperature": sampling_temperature,
+            "sampling_min_tokens": sampling_min_tokens,
+            "sampling_max_tokens": sampling_max_tokens,
+            "epochs_per_rollout_batch": epochs_per_rollout_batch,
             "train_batch_size": train_batch_size,
             "gradient_accumulation_steps": gradient_accumulation_steps,
             "micro_train_batch_size": micro_train_batch_size,
             "n_microbatches_per_rollout_batch": n_microbatches_per_rollout_batch,
-            "epochs_per_rollout_batch": epochs_per_rollout_batch,
+            "gpu_memory_utilization": gpu_memory_utilization,
             "loss_type": loss_type,
             "use_std_normalization": use_std_normalization,
+            "optimizer": "AdamW",
+            "weight_decay": 0.0,
+            "betas": (0.9, 0.95),
+            "grad_clip_norm": 1.0,
         },
     )
     wandb.define_metric("grpo_step")
