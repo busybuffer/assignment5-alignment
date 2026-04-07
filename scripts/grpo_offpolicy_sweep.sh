@@ -55,7 +55,7 @@ else
   RUNS=(
     # "1:256:64"    # on-policy baseline (epochs=1, train=256, microbatch=4)
     # "2:128:32"    # epochs=2, 4 optimizer steps per rollout
-    "2:64:16"     # epochs=2, 8 optimizer steps per rollout
+    # "2:64:16"     # epochs=2, 8 optimizer steps per rollout
     "4:128:32"    # epochs=4, 8 optimizer steps per rollout
     "4:64:16"     # epochs=4, 16 optimizer steps per rollout
   )
