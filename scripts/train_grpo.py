@@ -12,18 +12,18 @@ Learning-rate sweep (one run per job; use the same ``--wandb-group`` to compare 
 Running (from repo root, after ``uv sync`` and ``wandb login``):
 
     # Default hyperparameters, 2 GPUs (policy + vLLM)
-    uv run python scripts/train_grpo.py \\
+     python scripts/train_grpo.py \\
         --run-name grpo_rwb \\
         --policy-device cuda:0 --vllm-device cuda:1
 
     # No baseline: optimize with per-rollout raw reward from the grader
-    uv run python scripts/train_grpo.py \\
+     python scripts/train_grpo.py \\
         --run-name grpo_no_bl \\
         --loss-type no_baseline \\
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Off-policy style: multiple epochs per rollout; use GRPO-Clip (reuse frozen old log-probs)
-    uv run python scripts/train_grpo.py \\
+     python scripts/train_grpo.py \\
         --run-name grpo_clip_offp \\
         --loss-type grpo_clip \\
         --epochs-per-rollout-batch 2 \\

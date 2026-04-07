@@ -41,7 +41,7 @@ for lr in "${LEARNING_RATES[@]}"; do
   # Safe run name for outputs/ and W&B (avoid slashes / odd path chars)
   run_name="${SWEEP_GROUP}_lr_${lr}"
   echo "========== LR=${lr}  run_name=${run_name} =========="
-  uv run python scripts/train_grpo.py \
+  python scripts/train_grpo.py \
     --run-name "${run_name}" \
     --wandb-group "${SWEEP_GROUP}" \
     --wandb-tags "lr_sweep,lr_${lr}" \
