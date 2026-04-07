@@ -103,6 +103,16 @@ def sft_microbatch_train_step(
     return loss.detach(), {}
 
 
+def masked_mean(
+    tensor: torch.Tensor,
+    mask: torch.Tensor,
+    dim: int | None = None,
+) -> torch.Tensor:
+    """Mean over elements where mask is 1 (or True), same reduction shape as ``tensor.mean(dim)``."""
+    m = mask.to(dtype=tensor.dtype)
+    return (tensor * m).sum(dim=dim) / m.sum(dim=dim)
+
+
 def masked_normalize(
     tensor: torch.Tensor,
     mask: torch.Tensor,
