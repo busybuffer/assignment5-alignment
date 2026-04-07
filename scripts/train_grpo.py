@@ -472,6 +472,13 @@ def main(
             with open(rollout_log_path, "a") as f:
                 f.write(json.dumps({"grpo_step": grpo_step, "samples": samples}) + "\n")
 
+        if grpo_step == 50:
+            ckpt_dir = out_dir / "checkpoint_step50"
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            policy.save_pretrained(ckpt_dir)
+            tokenizer.save_pretrained(ckpt_dir)
+            typer.echo(f"  Step-50 checkpoint saved to {ckpt_dir}")
+
     ckpt_dir = out_dir / "checkpoint"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     policy.save_pretrained(ckpt_dir)
