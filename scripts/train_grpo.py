@@ -22,14 +22,6 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
         --loss-type no_baseline \
         --policy-device cuda:0 --vllm-device cuda:1
 
-    # Off-policy style: multiple epochs per rollout; use GRPO-Clip (reuse frozen old log-probs)
-     python scripts/train_grpo.py \
-        --run-name grpo_clip_offp \
-        --loss-type grpo_clip \
-        --epochs-per-rollout-batch 2 \
-        --cliprange 0.2 \
-        --policy-device cuda:0 --vllm-device cuda:1
-
     # Length normalization comparison (grpo_length_normalization):
     #   Run A: masked_mean (per-token average, default)
      python scripts/train_grpo.py \
@@ -44,6 +36,36 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
         --length-norm masked_normalize \
         --wandb-group grpo_lengnorm_sweep \
         --policy-device cuda:0 --vllm-device cuda:1
+
+    # Std normalization comparison (grpo_group_standard_deviation):
+    #   Run A: with std normalization (default)
+     python scripts/train_grpo.py \
+        --run-name grpo_std_norm \
+        --use-std-normalization \
+        --wandb-group grpo_std_sweep \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    #   Run B: without std normalization (mean only)
+     python scripts/train_grpo.py \
+        --run-name grpo_no_std_norm \
+        --no-std-normalization \
+        --wandb-group grpo_std_sweep \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    # Off-policy GRPO-Clip (grpo_off_policy):
+     python scripts/train_grpo.py \
+        --run-name grpo_clip_offp \
+        --loss-type grpo_clip \
+        --epochs-per-rollout-batch 2 \
+        --wandb-group grpo_offpolicy_sweep \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    # Off-policy hyperparameter sweep (grpo_off_policy_sweep):
+    #   Phase 1 — broad sweep, 50 steps (early-stop bad configs)
+    bash scripts/grpo_offpolicy_sweep.sh --n-grpo-steps 50
+    #   Phase 2 — focused sweep, 200 steps (best 2-3 configs from phase 1)
+    CONFIGS="2x128 4x128" bash scripts/grpo_offpolicy_sweep.sh --n-grpo-steps 200
+
 """
 from __future__ import annotations
 
@@ -389,13 +411,13 @@ def main(
         if loss_type == "grpo_clip":
             policy.eval()
             old_chunks: list[torch.Tensor] = []
-            with torch.no_grad():
+            with torch.inference_mode():
                 for s in range(0, b_sz, micro_train_batch_size):
                     sl = slice(s, s + micro_train_batch_size)
                     old_chunks.append(
                         get_response_log_probs(policy, input_ids[sl], labels[sl], False)["log_probs"]
                     )
-            old_full = torch.cat(old_chunks, dim=0).detach()
+            old_full = torch.cat(old_chunks, dim=0)
             policy.train()
 
         optimizer.zero_grad(set_to_none=True)
