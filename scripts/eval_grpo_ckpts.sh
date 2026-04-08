@@ -14,7 +14,7 @@ TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-2}"
 mkdir -p "$OUT_DIR"
 
 CKPT_DIRS=(
-    "outputs/outputs/grpo_leaderboard/checkpoint_step_150"
+    "outputs/grpo_leaderboard/checkpoint_step_150"
     "outputs/grpo_lr_sweep_20260407_lr_3e-5/checkpoint_step50"
     # "outputs/grpo_no_std_norm/checkpoint_step50"
     # "outputs/grpo_clip_offp/checkpoint_step50"
