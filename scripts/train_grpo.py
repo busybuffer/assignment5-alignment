@@ -68,14 +68,22 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Prompt ablation (grpo_prompt_ablation):
+    #   Run A: R1-Zero prompt (baseline)
+     python scripts/train_grpo.py \
+        --run-name grpo_prompt_r1zero \
+        --wandb-group grpo_prompt_ablation \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    #   Run B: question-only prompt + question_only reward fn
      python scripts/train_grpo.py \
         --run-name grpo_prompt_qonly \
-        --prompt-file cs336_alignment/prompts/question_only.prompt \
+        --prompt-type question_only \
         --wandb-group grpo_prompt_ablation \
         --policy-device cuda:0 --vllm-device cuda:1
         
     # Leaderboard run (leaderboard):
     #   Constraints: R1-Zero prompt, eval temperature=1.0 (hardcoded)
+    
     # on-policy, best lr 3e-5, 200 steps, no std normalization, no length norm
      python scripts/train_grpo.py \
         --run-name grpo_leaderboard \
@@ -238,8 +246,9 @@ def main(
     model_id: str = typer.Option("Qwen/Qwen2.5-Math-1.5B", "--model-id"),
     train_data_path: Path = typer.Option(DATA_DIR / "train.jsonl", "--train-data"),
     val_data_path: Path = typer.Option(DATA_DIR / "validation.jsonl", "--val-data"),
-    prompt_file: Path = typer.Option(DEFAULT_PROMPT_FILE, "--prompt-file", help="Path to .prompt template file (use {question} placeholder)."),
-    reward_fn_name: str = typer.Option("r1_zero", "--reward-fn", help="r1_zero | question_only"),
+    prompt_type: str | None = typer.Option(None, "--prompt-type", help="r1_zero | question_only  (sets both --prompt-file and --reward-fn automatically)"),
+    prompt_file: Path = typer.Option(DEFAULT_PROMPT_FILE, "--prompt-file", help="Path to .prompt template file (use {question} placeholder). Overridden by --prompt-type."),
+    reward_fn_name: str = typer.Option("r1_zero", "--reward-fn", help="r1_zero | question_only. Overridden by --prompt-type."),
     n_grpo_steps: int = typer.Option(50, "--n-grpo-steps"),
     learning_rate: float = typer.Option(3e-5, "--learning-rate"),
     advantage_eps: float = typer.Option(1e-6, "--advantage-eps"),
@@ -295,6 +304,16 @@ def main(
             "On-policy (epochs_per_rollout_batch=1): set train_batch_size == rollout_batch_size "
             f"(got {train_batch_size} vs {rollout_batch_size})"
         )
+
+    if prompt_type is not None:
+        if prompt_type == "r1_zero":
+            prompt_file = PROMPTS_DIR / "r1_zero.prompt"
+            reward_fn_name = "r1_zero"
+        elif prompt_type == "question_only":
+            prompt_file = PROMPTS_DIR / "question_only.prompt"
+            reward_fn_name = "question_only"
+        else:
+            raise typer.BadParameter(f"Unknown prompt_type: {prompt_type}. Choose r1_zero | question_only")
 
     if loss_type not in ("no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"):
         raise typer.BadParameter(f"Unknown loss_type: {loss_type}")
