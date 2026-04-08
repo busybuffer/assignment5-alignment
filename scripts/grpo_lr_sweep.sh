@@ -51,7 +51,7 @@ for lr in "${LEARNING_RATES[@]}"; do
     --wandb-group "${SWEEP_GROUP}" \
     --wandb-tags "lr_sweep,lr_${lr}" \
     --learning-rate "${lr}" \
-    --val-examples 5000 \
+    --val-examples 1024 \
     --val-every 10 \
     --policy-device "${POLICY_DEVICE}" \
     --vllm-device "${VLLM_DEVICE}" \
