@@ -44,7 +44,7 @@ echo "Learning rates: ${LEARNING_RATES[*]}"
 
 for lr in "${LEARNING_RATES[@]}"; do
   # Safe run name for outputs/ and W&B (avoid slashes / odd path chars)
-  run_name="${SWEEP_GROUP}_eval_full_lr_${lr}"
+  run_name="${SWEEP_GROUP}_temp1_val10_lr_${lr}"
   echo "========== LR=${lr}  run_name=${run_name} =========="
   python scripts/train_grpo.py \
     --run-name "${run_name}" \
