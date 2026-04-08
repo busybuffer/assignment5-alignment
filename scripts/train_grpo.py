@@ -372,8 +372,10 @@ def main(
     train_data = load_jsonl(train_data_path)
     val_data = load_jsonl(val_data_path)
     random.shuffle(val_data)
-    val_data = val_data[: min(val_examples, len(val_data))]
-    val_prompts, val_answers = make_prompts(val_data, prompt_template)
+    val_data_small = val_data[: min(val_examples, len(val_data))]
+    val_data_final = val_data[: min(5000, len(val_data))]
+    val_prompts, val_answers = make_prompts(val_data_small, prompt_template)
+    final_val_prompts, final_val_answers = make_prompts(val_data_final, prompt_template)
 
     typer.echo(f"Loading policy on {policy_device} ...")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -556,8 +558,14 @@ def main(
         typer.echo(f"  Train reward (mean): {reward_stats['train/reward_mean']:.4f}")
 
         if grpo_step % val_every == 0 or grpo_step == n_grpo_steps:
+            eval_prompts = val_prompts
+            eval_answers = val_answers
+            if grpo_step == n_grpo_steps:
+                typer.echo(f"  Final validation on {len(final_val_answers)} examples ...")
+                eval_prompts = final_val_prompts
+                eval_answers = final_val_answers
             val_out = run_validation(
-                policy, llm, val_prompts, val_answers, tokenizer, eval_sampling, grpo_step, reward_fn
+                policy, llm, eval_prompts, eval_answers, tokenizer, eval_sampling, grpo_step, reward_fn
             )
             r = float(val_out["metrics"]["avg_reward"])
             typer.echo(f"  eval avg_reward={r:.4f}  acc={val_out['accuracy']:.4f}")

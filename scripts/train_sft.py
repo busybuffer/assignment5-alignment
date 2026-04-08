@@ -227,8 +227,10 @@ def main(
 
     val_data = load_jsonl(val_data_path)
     random.shuffle(val_data)
-    val_data = val_data[:eval_examples]
-    val_prompts, val_answers = make_val_prompts(val_data, prompt_template)
+    val_data_small = val_data[: min(eval_examples, len(val_data))]
+    val_data_final = val_data[: min(5000, len(val_data))]
+    val_prompts, val_answers = make_val_prompts(val_data_small, prompt_template)
+    final_val_prompts, final_val_answers = make_val_prompts(val_data_final, prompt_template)
 
     # ------------------------------------------------------------------ model
     typer.echo(f"Loading policy on {policy_device} ...")
@@ -245,7 +247,7 @@ def main(
     typer.echo(f"Initialising vLLM on {vllm_device} ...")
     llm = init_vllm(model_id, vllm_device, seed=seed, gpu_memory_utilization=gpu_memory_utilization)
     eval_sampling_params = SamplingParams(
-        temperature=0.0,
+        temperature=1.0,
         max_tokens=eval_max_tokens,
         stop=["</answer>"],
         include_stop_str_in_output=True,
@@ -348,8 +350,16 @@ def main(
             train_step += 1
 
     # ------------------------------------------------------------------ final eval
-    typer.echo("\nFinal evaluation ...")
-    metrics = run_eval(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, eval_step)
+    typer.echo(f"\nFinal evaluation on {len(final_val_answers)} validation examples ...")
+    metrics = run_eval(
+        policy,
+        llm,
+        final_val_prompts,
+        final_val_answers,
+        tokenizer,
+        eval_sampling_params,
+        eval_step,
+    )
     typer.echo(f"Final accuracy: {metrics['accuracy']:.4f}")
 
     # Save checkpoint

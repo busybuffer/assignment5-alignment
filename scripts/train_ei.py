@@ -365,8 +365,10 @@ def main(
 
     val_data = load_jsonl(val_data_path)
     random.shuffle(val_data)
-    val_data = val_data[:eval_examples]
-    val_prompts, val_answers = make_prompts(val_data, prompt_template)
+    val_data_small = val_data[: min(eval_examples, len(val_data))]
+    val_data_final = val_data[: min(5000, len(val_data))]
+    val_prompts, val_answers = make_prompts(val_data_small, prompt_template)
+    final_val_prompts, final_val_answers = make_prompts(val_data_final, prompt_template)
 
     # ------------------------------------------------------------------ model
     typer.echo(f"Loading policy on {policy_device} ...")
@@ -395,7 +397,7 @@ def main(
     )
 
     eval_sampling_params = SamplingParams(
-        temperature=0.0,
+        temperature=1.0,
         max_tokens=eval_max_tokens,
         min_tokens=sampling_min_tokens,
         stop=["</answer>"],
@@ -457,6 +459,18 @@ def main(
         typer.echo(f"  Eval accuracy: {metrics['accuracy']:.4f}")
 
     # ------------------------------------------------------------------ save
+    typer.echo(f"\nRunning final evaluation on {len(final_val_answers)} validation examples ...")
+    final_metrics = run_eval(
+        policy,
+        llm,
+        final_val_prompts,
+        final_val_answers,
+        tokenizer,
+        eval_sampling_params,
+        ei_step=n_ei_steps,
+    )
+    typer.echo(f"  Final accuracy: {final_metrics['accuracy']:.4f}")
+
     ckpt_dir = Path("outputs") / run_name
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     policy.save_pretrained(ckpt_dir)
