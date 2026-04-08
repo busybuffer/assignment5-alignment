@@ -38,14 +38,6 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Std normalization comparison (grpo_group_standard_deviation):
-    #   Run A: with std normalization (default)
-     python scripts/train_grpo.py \
-        --run-name grpo_std_norm \
-        --use-std-normalization \
-        --wandb-group grpo_std_sweep \
-        --policy-device cuda:0 --vllm-device cuda:1
-
-    #   Run B: without std normalization (mean only)
      python scripts/train_grpo.py \
         --run-name grpo_no_std_norm \
         --no-std-normalization \
@@ -65,6 +57,30 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
     bash scripts/grpo_offpolicy_sweep.sh --n-grpo-steps 50
     #   Phase 2 — focused sweep, 200 steps (best 2-3 configs from phase 1)
     CONFIGS="2x128 4x128" bash scripts/grpo_offpolicy_sweep.sh --n-grpo-steps 200
+
+    # Off-policy GRPO-No-Clip ablation (grpo_off_policy_clip_ablation):
+    #   Use best off-policy config (ep2, tb256) with unclipped IS-weighted loss
+     python scripts/train_grpo.py \
+        --run-name grpo_no_clip_offp \
+        --loss-type grpo_no_clip \
+        --epochs-per-rollout-batch 2 \
+        --wandb-group grpo_clip_ablation \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    # Prompt ablation (grpo_prompt_ablation):
+     python scripts/train_grpo.py \
+        --run-name grpo_prompt_qonly \
+        --prompt-file cs336_alignment/prompts/question_only.prompt \
+        --wandb-group grpo_prompt_ablation \
+        --policy-device cuda:0 --vllm-device cuda:1
+        
+    # leaderboard
+        python scripts/train_grpo.py \
+            --run-name grpo_leaderboard-on-policy \
+            --prompt-file cs336_alignment/prompts/leaderboard.prompt \
+            --wandb-group grpo_leaderboard \
+            --policy-device cuda:0 --vllm-device cuda:1 \
+            --n-grpo-steps 200
 
 """
 from __future__ import annotations
@@ -89,7 +105,8 @@ from cs336_alignment.sft_helper import get_response_log_probs, log_generations, 
 app = typer.Typer()
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "MATH"
-PROMPT_FILE = Path(__file__).parent.parent / "cs336_alignment" / "prompts" / "r1_zero.prompt"
+PROMPTS_DIR = Path(__file__).parent.parent / "cs336_alignment" / "prompts"
+DEFAULT_PROMPT_FILE = PROMPTS_DIR / "r1_zero.prompt"
 
 
 def init_vllm(model_id: str, device: str, seed: int, gpu_memory_utilization: float = 0.85) -> LLM:
@@ -208,6 +225,7 @@ def main(
     model_id: str = typer.Option("Qwen/Qwen2.5-Math-1.5B", "--model-id"),
     train_data_path: Path = typer.Option(DATA_DIR / "train.jsonl", "--train-data"),
     val_data_path: Path = typer.Option(DATA_DIR / "validation.jsonl", "--val-data"),
+    prompt_file: Path = typer.Option(DEFAULT_PROMPT_FILE, "--prompt-file", help="Path to .prompt template file (use {question} placeholder)."),
     n_grpo_steps: int = typer.Option(50, "--n-grpo-steps"),
     learning_rate: float = typer.Option(3e-5, "--learning-rate"),
     advantage_eps: float = typer.Option(1e-6, "--advantage-eps"),
@@ -264,7 +282,7 @@ def main(
             f"(got {train_batch_size} vs {rollout_batch_size})"
         )
 
-    if loss_type not in ("no_baseline", "reinforce_with_baseline", "grpo_clip"):
+    if loss_type not in ("no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"):
         raise typer.BadParameter(f"Unknown loss_type: {loss_type}")
 
     random.seed(seed)
@@ -310,7 +328,7 @@ def main(
     wandb.define_metric("train/*", step_metric="grpo_step")
     wandb.define_metric("rollout/*", step_metric="grpo_step")
 
-    prompt_template = PROMPT_FILE.read_text()
+    prompt_template = prompt_file.read_text()
     train_data = load_jsonl(train_data_path)
     val_data = load_jsonl(val_data_path)
     random.shuffle(val_data)
@@ -403,12 +421,12 @@ def main(
         adv_b = advantages.unsqueeze(-1).to(device=policy_device, dtype=dtype)
 
         loss_literal = cast(
-            Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"],
+            Literal["no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"],
             loss_type,
         )
 
         old_full: torch.Tensor | None = None
-        if loss_type == "grpo_clip":
+        if loss_type in ("grpo_clip", "grpo_no_clip"):
             policy.eval()
             old_chunks: list[torch.Tensor] = []
             with torch.inference_mode():
@@ -451,7 +469,7 @@ def main(
                     raw_rewards=raw_b[sl] if loss_type == "no_baseline" else None,
                     advantages=adv_b[sl] if loss_type != "no_baseline" else None,
                     old_log_probs=old_slice,
-                    cliprange=cliprange if loss_type == "grpo_clip" else None,
+                    cliprange=cliprange if loss_type == "grpo_clip" else None,  # grpo_no_clip ignores cliprange
                     length_norm=length_norm,
                 )
 
@@ -516,12 +534,12 @@ def main(
             with open(rollout_log_path, "a") as f:
                 f.write(json.dumps({"grpo_step": grpo_step, "samples": samples}) + "\n")
 
-        if grpo_step == 50:
-            ckpt_dir = out_dir / "checkpoint_step50"
+        if grpo_step % 50 == 0:
+            ckpt_dir = out_dir / f"checkpoint_step_{grpo_step}"
             ckpt_dir.mkdir(parents=True, exist_ok=True)
             policy.save_pretrained(ckpt_dir)
             tokenizer.save_pretrained(ckpt_dir)
-            typer.echo(f"  Step-50 checkpoint saved to {ckpt_dir}")
+            typer.echo(f"  Step-{grpo_step} checkpoint saved to {ckpt_dir}")
 
     ckpt_dir = out_dir / "checkpoint"
     ckpt_dir.mkdir(parents=True, exist_ok=True)

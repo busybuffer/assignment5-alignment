@@ -97,7 +97,7 @@ def compute_grpo_clip_loss(
 
 def compute_policy_gradient_loss(
     policy_log_probs: torch.Tensor,
-    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"],
+    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"],
     raw_rewards: torch.Tensor | None = None,
     advantages: torch.Tensor | None = None,
     old_log_probs: torch.Tensor | None = None,
@@ -120,6 +120,14 @@ def compute_policy_gradient_loss(
             advantages, policy_log_probs, old_log_probs, cliprange
         )
         return loss, metadata
+    if loss_type == "grpo_no_clip":
+        # Off-policy importance-weighted loss without clipping: ratio * advantage.
+        # old_log_probs required to compute the IS ratio; cliprange is ignored.
+        assert advantages is not None, "advantages is required for loss_type='grpo_no_clip'"
+        assert old_log_probs is not None, "old_log_probs is required for loss_type='grpo_no_clip'"
+        ratio = torch.exp(policy_log_probs - old_log_probs)
+        loss = -(ratio * advantages)
+        return loss, {}
     raise ValueError(f"Unknown loss_type: {loss_type!r}")
 
 
@@ -127,7 +135,7 @@ def grpo_microbatch_train_step(
     policy_log_probs: torch.Tensor,
     response_mask: torch.Tensor,
     gradient_accumulation_steps: int,
-    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip"],
+    loss_type: Literal["no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"],
     raw_rewards: torch.Tensor | None = None,
     advantages: torch.Tensor | None = None,
     old_log_probs: torch.Tensor | None = None,
