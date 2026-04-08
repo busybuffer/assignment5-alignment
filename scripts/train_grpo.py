@@ -110,7 +110,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from vllm import LLM, SamplingParams
 from vllm.model_executor import set_random_seed as vllm_set_random_seed
 
-from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+from cs336_alignment.drgrpo_grader import question_only_reward_fn, r1_zero_reward_fn
 from cs336_alignment.grpo import compute_group_normalized_rewards, grpo_microbatch_train_step
 from cs336_alignment.sft_helper import get_response_log_probs, log_generations, tokenize_prompt_and_output
 
@@ -172,11 +172,11 @@ def rollout_batch(
     return responses, repeated_ground_truths
 
 
-def rollout_train_reward_stats(responses: list[str], ground_truths: list[str]) -> dict[str, float]:
+def rollout_train_reward_stats(responses: list[str], ground_truths: list[str], reward_fn=r1_zero_reward_fn) -> dict[str, float]:
     total_r = fmt_r = ans_r = 0.0
     n = len(responses)
     for resp, gt in zip(responses, ground_truths):
-        d = r1_zero_reward_fn(resp, gt)
+        d = reward_fn(resp, gt)
         total_r += d["reward"]
         fmt_r += d["format_reward"]
         ans_r += d["answer_reward"]
@@ -195,6 +195,7 @@ def run_validation(
     tokenizer,
     eval_sampling_params: SamplingParams,
     grpo_step: int,
+    reward_fn=r1_zero_reward_fn,
     num_table_rows: int = 5,
 ) -> dict:
     policy.eval()
@@ -203,7 +204,7 @@ def run_validation(
         vllm_model=llm,
         prompts=val_prompts,
         ground_truths=val_answers,
-        reward_fn=r1_zero_reward_fn,
+        reward_fn=reward_fn,
         sampling_params=eval_sampling_params,
         tokenizer=tokenizer,
         label=f"grpo_step={grpo_step}",
@@ -238,6 +239,7 @@ def main(
     train_data_path: Path = typer.Option(DATA_DIR / "train.jsonl", "--train-data"),
     val_data_path: Path = typer.Option(DATA_DIR / "validation.jsonl", "--val-data"),
     prompt_file: Path = typer.Option(DEFAULT_PROMPT_FILE, "--prompt-file", help="Path to .prompt template file (use {question} placeholder)."),
+    reward_fn_name: str = typer.Option("r1_zero", "--reward-fn", help="r1_zero | question_only"),
     n_grpo_steps: int = typer.Option(50, "--n-grpo-steps"),
     learning_rate: float = typer.Option(3e-5, "--learning-rate"),
     advantage_eps: float = typer.Option(1e-6, "--advantage-eps"),
@@ -296,6 +298,13 @@ def main(
 
     if loss_type not in ("no_baseline", "reinforce_with_baseline", "grpo_clip", "grpo_no_clip"):
         raise typer.BadParameter(f"Unknown loss_type: {loss_type}")
+
+    if reward_fn_name == "r1_zero":
+        reward_fn = r1_zero_reward_fn
+    elif reward_fn_name == "question_only":
+        reward_fn = question_only_reward_fn
+    else:
+        raise typer.BadParameter(f"Unknown reward_fn: {reward_fn_name}")
 
     random.seed(seed)
     torch.manual_seed(seed)
@@ -385,7 +394,7 @@ def main(
     )
 
     typer.echo("Initial validation ...")
-    val0 = run_validation(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling, 0)
+    val0 = run_validation(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling, 0, reward_fn)
     typer.echo(f"  eval avg_reward={val0['metrics']['avg_reward']:.4f}  acc={val0['accuracy']:.4f}")
 
     for grpo_step in range(1, n_grpo_steps + 1):
@@ -403,7 +412,7 @@ def main(
             )
 
         advantages, raw_rewards, _ = compute_group_normalized_rewards(
-            reward_fn=r1_zero_reward_fn,
+            reward_fn=reward_fn,
             rollout_responses=responses,
             repeated_ground_truths=repeated_gt,
             group_size=group_size,
@@ -425,7 +434,7 @@ def main(
             labels = labels[:, :max_seq_len]
             response_mask = response_mask[:, :max_seq_len]
 
-        reward_stats = rollout_train_reward_stats(responses, repeated_gt)
+        reward_stats = rollout_train_reward_stats(responses, repeated_gt, reward_fn)
         wandb.log({**reward_stats, "grpo_step": grpo_step, "rollout/batch_size": len(responses)})
 
         dtype = next(policy.parameters()).dtype
@@ -529,7 +538,7 @@ def main(
 
         if grpo_step % val_every == 0 or grpo_step == n_grpo_steps:
             val_out = run_validation(
-                policy, llm, val_prompts, val_answers, tokenizer, eval_sampling, grpo_step
+                policy, llm, val_prompts, val_answers, tokenizer, eval_sampling, grpo_step, reward_fn
             )
             r = float(val_out["metrics"]["avg_reward"])
             typer.echo(f"  eval avg_reward={r:.4f}  acc={val_out['accuracy']:.4f}")
