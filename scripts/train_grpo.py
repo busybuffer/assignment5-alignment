@@ -206,8 +206,8 @@ def run_validation(
     grpo_step: int,
     examples_seen: int,
     tokens_seen: int,
-    output_path: Path | None = None,
     reward_fn=r1_zero_reward_fn,
+    output_path: Path | None = None,
     num_table_rows: int = 5,
 ) -> dict:
     policy.eval()
@@ -601,7 +601,7 @@ def main(
                 eval_output_path = None
             val_out = run_validation(
                 policy, llm, eval_prompts, eval_answers, tokenizer, eval_sampling, grpo_step,
-                examples_seen, tokens_seen, eval_output_path, reward_fn,
+                examples_seen, tokens_seen, reward_fn, eval_output_path,
             )
             r = float(val_out["metrics"]["avg_reward"])
             typer.echo(f"  eval avg_reward={r:.4f}  acc={val_out['accuracy']:.4f}")
