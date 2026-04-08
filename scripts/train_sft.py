@@ -8,7 +8,7 @@ Usage (2x H100):
     # Full dataset
     # effective batch size = 8 * 4 = 32; ~35 GB on policy GPU
     python scripts/train_sft.py \
-        --run-name sft_full \
+        --run-name sft_eval1_full \
         --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
         --num-epochs 5 --eval-interval 30 \
         --policy-device cuda:0 --vllm-device cuda:1
@@ -17,7 +17,7 @@ Usage (2x H100):
     for N in 128 256 512 1024; do
         EPOCHS=$([[ $N -le 256 ]] && echo 8 || echo 5)
         python scripts/train_sft.py \
-            --run-name sft_$N \
+            --run-name sft_eval1_$N \
             --max-examples $N \
             --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
             --num-epochs $EPOCHS --eval-interval 20 \
@@ -26,10 +26,10 @@ Usage (2x H100):
 
     # Filtered (correct answers only, 1408/1767 examples)
     python scripts/train_sft.py \
-        --run-name sft_filtered_correct \
+        --run-name sft_eval1_filtered_correct \
         --filter-correct \
         --lr 5e-5 --batch-size 8 --grad-accum-steps 4 \
-        --num-epochs 3 --eval-interval 30 \
+        --num-epochs 5 --eval-interval 30 \
         --policy-device cuda:0 --vllm-device cuda:1
 """
 from __future__ import annotations
@@ -115,6 +115,9 @@ def run_eval(
     tokenizer,
     eval_sampling_params: SamplingParams,
     eval_step: int,
+    examples_seen: int,
+    tokens_seen: int,
+    output_path: Path | None = None,
     num_log_examples: int = 5,
 ) -> dict[str, float]:
     policy.eval()
@@ -132,6 +135,12 @@ def run_eval(
     metrics = result["metrics"]
     accuracy = metrics["n_correct"] / metrics["n_total"]
 
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            for rec in result["records"]:
+                f.write(json.dumps(rec) + "\n")
+
     wandb.log({
         "eval/accuracy": accuracy,
         "eval/avg_reward": metrics["avg_reward"],
@@ -140,6 +149,8 @@ def run_eval(
         "eval/avg_response_length_incorrect": metrics["avg_response_length_incorrect"],
         "eval/avg_token_entropy": metrics["avg_token_entropy"],
         "eval_step": eval_step,
+        "examples_seen": examples_seen,
+        "tokens_seen": tokens_seen,
     })
 
     # Log a few generation examples to wandb as a table
@@ -208,6 +219,8 @@ def main(
     wandb.define_metric("eval_step")
     wandb.define_metric("train/*", step_metric="train_step")
     wandb.define_metric("eval/*", step_metric="eval_step")
+    wandb.define_metric("examples_seen")
+    wandb.define_metric("tokens_seen")
 
     prompt_template = PROMPT_FILE.read_text()
 
@@ -257,12 +270,18 @@ def main(
     # ------------------------------------------------------------------ train
     train_step = 0
     eval_step = 0
+    examples_seen = 0
+    tokens_seen = 0
+    final_eval_output_path = Path("outputs") / "eval" / f"{run_name}.jsonl"
     total_optimizer_steps = num_epochs * ((len(sft_data) + batch_size * grad_accum_steps - 1) // (batch_size * grad_accum_steps))
     typer.echo(f"~{total_optimizer_steps} optimizer steps planned.")
 
     # Eval before any training
     typer.echo("Running initial evaluation ...")
-    run_eval(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, eval_step)
+    run_eval(
+        policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, eval_step,
+        examples_seen, tokens_seen,
+    )
     eval_step += 1
 
     for epoch in range(num_epochs):
@@ -296,6 +315,9 @@ def main(
             if response_mask.sum() == 0:
                 continue
 
+            examples_seen += int(input_ids.shape[0])
+            tokens_seen += int(input_ids.numel())
+
             # Forward + backward
             result = get_response_log_probs(policy, input_ids, labels, return_token_entropy=True)
             log_probs = result["log_probs"]
@@ -324,6 +346,8 @@ def main(
                     "train/avg_token_entropy": avg_entropy.item(),
                     "train/epoch": epoch + 1,
                     "train_step": train_step,
+                    "examples_seen": examples_seen,
+                    "tokens_seen": tokens_seen,
                 })
 
                 if train_step % 10 == 0:
@@ -338,6 +362,7 @@ def main(
                     metrics = run_eval(
                         policy, llm, val_prompts, val_answers,
                         tokenizer, eval_sampling_params, eval_step,
+                        examples_seen, tokens_seen,
                     )
                     typer.echo(f"     accuracy={metrics['accuracy']:.4f}")
                     eval_step += 1
@@ -359,8 +384,12 @@ def main(
         tokenizer,
         eval_sampling_params,
         eval_step,
+        examples_seen,
+        tokens_seen,
+        final_eval_output_path,
     )
     typer.echo(f"Final accuracy: {metrics['accuracy']:.4f}")
+    typer.echo(f"Final eval results saved to {final_eval_output_path}")
 
     # Save checkpoint
     ckpt_dir = Path("outputs") / run_name

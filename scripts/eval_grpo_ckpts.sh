@@ -89,11 +89,23 @@ import json
 rows = []
 for f in glob.glob('outputs/eval/grpo_*.jsonl'):
     lines = [json.loads(l) for l in open(f)]
-    correct = sum(l['answer_reward'] == 1.0 for l in lines)
+    format_correct = sum(l['format_reward'] == 1.0 for l in lines)
+    answer_correct = sum(l['answer_reward'] == 1.0 for l in lines)
     total = len(lines)
     name = f.split('/')[-1].replace('.jsonl', '')
-    rows.append((correct / total, name, correct, total))
+    rows.append((
+        answer_correct / total,
+        format_correct / total,
+        name,
+        format_correct,
+        answer_correct,
+        total,
+    ))
 
-for acc, name, correct, total in sorted(rows, reverse=True):
-    print(f'  {name:<45} {acc:.4f}  ({correct}/{total})')
+for answer_acc, format_acc, name, format_correct, answer_correct, total in sorted(rows, reverse=True):
+    print(
+        f'  {name:<45} '
+        f'answer={answer_acc:.4f}'
+        f'format={format_acc:.4f}'
+    )
 "

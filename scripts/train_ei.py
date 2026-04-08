@@ -12,30 +12,30 @@ Algorithm (per EI step):
 Usage (2x H100):
     # Baseline: G=4, sft_epochs=1, db_size=512
     python scripts/train_ei.py \
-        --run-name ei_G4_e1_db512 \
+        --run-name ei_G4_e1_db512_eval1 \
         --num-rollouts 4 --sft-epochs 1 --db-size 512 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # More rollouts
     python scripts/train_ei.py \
-        --run-name ei_G8_e1_db512 \
+        --run-name ei_G8_e1_db512_eval1 \
         --num-rollouts 8 --sft-epochs 1 --db-size 512 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     python scripts/train_ei.py \
-        --run-name ei_G16_e1_db512 \
+        --run-name ei_G16_e1_db512_eval1 \
         --num-rollouts 16 --sft-epochs 1 --db-size 512 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # More SFT epochs
     python scripts/train_ei.py \
-        --run-name ei_G4_e2_db512 \
+        --run-name ei_G4_e2_db512_eval1 \
         --num-rollouts 4 --sft-epochs 2 --db-size 512 \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Larger batch
     python scripts/train_ei.py \
-        --run-name ei_G4_e1_db1024 \
+        --run-name ei_G4_e1_db1024_eval1 \
         --num-rollouts 4 --sft-epochs 1 --db-size 1024 \
         --policy-device cuda:0 --vllm-device cuda:1
 """
@@ -192,6 +192,8 @@ def run_sft_epoch(
 
     total_loss = 0.0
     total_entropy = 0.0
+    total_examples = 0
+    total_tokens = 0
     n_steps = 0
     microbatch_idx = 0
     optimizer.zero_grad()
@@ -216,6 +218,9 @@ def run_sft_epoch(
 
         if response_mask.sum() == 0:
             continue
+
+        total_examples += int(input_ids.shape[0])
+        total_tokens += int(input_ids.numel())
 
         result = get_response_log_probs(policy, input_ids, labels, return_token_entropy=True)
         log_probs = result["log_probs"]
@@ -248,6 +253,8 @@ def run_sft_epoch(
     return {
         "sft/avg_loss": total_loss / denom,
         "sft/avg_token_entropy": total_entropy / denom,
+        "examples_seen_increment": total_examples,
+        "tokens_seen_increment": total_tokens,
     }
 
 
@@ -263,6 +270,9 @@ def run_eval(
     tokenizer,
     eval_sampling_params: SamplingParams,
     ei_step: int,
+    examples_seen: int,
+    tokens_seen: int,
+    output_path: Path | None = None,
     num_log_examples: int = 5,
 ) -> dict:
     policy.eval()
@@ -280,12 +290,20 @@ def run_eval(
     metrics = result["metrics"]
     accuracy = metrics["n_correct"] / metrics["n_total"]
 
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            for rec in result["records"]:
+                f.write(json.dumps(rec) + "\n")
+
     wandb.log({
         "eval/accuracy": accuracy,
         "eval/avg_reward": metrics["avg_reward"],
         "eval/avg_response_length": metrics["avg_response_length"],
         "eval/avg_token_entropy": metrics["avg_token_entropy"],
         "ei_step": ei_step,
+        "examples_seen": examples_seen,
+        "tokens_seen": tokens_seen,
     })
 
     records = result["records"][:num_log_examples]
@@ -356,6 +374,8 @@ def main(
     wandb.define_metric("eval/*", step_metric="ei_step")
     wandb.define_metric("rollout/*", step_metric="ei_step")
     wandb.define_metric("sft/*", step_metric="ei_step")
+    wandb.define_metric("examples_seen")
+    wandb.define_metric("tokens_seen")
 
     prompt_template = PROMPT_FILE.read_text()
 
@@ -406,8 +426,14 @@ def main(
     )
 
     # ------------------------------------------------------------------ initial eval
+    examples_seen = 0
+    tokens_seen = 0
+    final_eval_output_path = Path("outputs") / "eval" / f"{run_name}.jsonl"
     typer.echo("Running initial evaluation (before any EI) ...")
-    metrics = run_eval(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, ei_step=0)
+    metrics = run_eval(
+        policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, ei_step=0,
+        examples_seen=examples_seen, tokens_seen=tokens_seen,
+    )
     typer.echo(f"  Initial accuracy: {metrics['accuracy']:.4f}")
 
     # ------------------------------------------------------------------ EI loop
@@ -428,11 +454,19 @@ def main(
             f"({rollout_stats['rollout/n_correct']}/{rollout_stats['rollout/total']})  "
             f"SFT examples: {len(sft_examples)}"
         )
-        wandb.log({**rollout_stats, "ei_step": ei_step})
+        wandb.log({
+            **rollout_stats,
+            "ei_step": ei_step,
+            "examples_seen": examples_seen,
+            "tokens_seen": tokens_seen,
+        })
 
         if not sft_examples:
             typer.echo("  No correct rollouts — skipping SFT step.")
-            metrics = run_eval(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, ei_step)
+            metrics = run_eval(
+                policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, ei_step,
+                examples_seen=examples_seen, tokens_seen=tokens_seen,
+            )
             typer.echo(f"  Eval accuracy: {metrics['accuracy']:.4f}")
             continue
 
@@ -445,17 +479,28 @@ def main(
                 microbatch_size, grad_accum_steps, max_seq_len, policy_device,
             )
             for k, v in epoch_metrics.items():
-                epoch_metrics_accum[k] = v  # keep last epoch's values
+                if not k.endswith("_increment"):
+                    epoch_metrics_accum[k] = v  # keep last epoch's values
+            examples_seen += int(epoch_metrics["examples_seen_increment"])
+            tokens_seen += int(epoch_metrics["tokens_seen_increment"])
             typer.echo(
                 f"    epoch {epoch+1}/{sft_epochs}  "
                 f"loss={epoch_metrics['sft/avg_loss']:.4f}  "
                 f"entropy={epoch_metrics['sft/avg_token_entropy']:.3f}"
             )
-        wandb.log({**epoch_metrics_accum, "ei_step": ei_step})
+        wandb.log({
+            **epoch_metrics_accum,
+            "ei_step": ei_step,
+            "examples_seen": examples_seen,
+            "tokens_seen": tokens_seen,
+        })
 
         # 4. Sync weights to vLLM and evaluate
         typer.echo("  Evaluating ...")
-        metrics = run_eval(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, ei_step)
+        metrics = run_eval(
+            policy, llm, val_prompts, val_answers, tokenizer, eval_sampling_params, ei_step,
+            examples_seen=examples_seen, tokens_seen=tokens_seen,
+        )
         typer.echo(f"  Eval accuracy: {metrics['accuracy']:.4f}")
 
     # ------------------------------------------------------------------ save
@@ -468,8 +513,12 @@ def main(
         tokenizer,
         eval_sampling_params,
         ei_step=n_ei_steps,
+        examples_seen=examples_seen,
+        tokens_seen=tokens_seen,
+        output_path=final_eval_output_path,
     )
     typer.echo(f"  Final accuracy: {final_metrics['accuracy']:.4f}")
+    typer.echo(f"  Final eval results saved to {final_eval_output_path}")
 
     ckpt_dir = Path("outputs") / run_name
     ckpt_dir.mkdir(parents=True, exist_ok=True)

@@ -203,6 +203,9 @@ def run_validation(
     tokenizer,
     eval_sampling_params: SamplingParams,
     grpo_step: int,
+    examples_seen: int,
+    tokens_seen: int,
+    output_path: Path | None = None,
     reward_fn=r1_zero_reward_fn,
     num_table_rows: int = 5,
 ) -> dict:
@@ -223,6 +226,12 @@ def run_validation(
     n_val = len(records)
     avg_answer_reward = sum(r["answer_reward"] for r in records) / n_val
     avg_format_reward = sum(r["format_reward"] for r in records) / n_val
+
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            for rec in records:
+                f.write(json.dumps(rec) + "\n")
     wandb.log({
         "eval/accuracy": accuracy,
         "eval/avg_reward": metrics["avg_reward"],
@@ -231,6 +240,8 @@ def run_validation(
         "eval/avg_response_length": metrics["avg_response_length"],
         "eval/avg_token_entropy": metrics["avg_token_entropy"],
         "grpo_step": grpo_step,
+        "examples_seen": examples_seen,
+        "tokens_seen": tokens_seen,
     })
     table = wandb.Table(columns=["prompt", "response", "ground_truth", "reward"])
     for rec in result["records"][:num_table_rows]:
@@ -367,6 +378,8 @@ def main(
     wandb.define_metric("eval/*", step_metric="grpo_step")
     wandb.define_metric("train/*", step_metric="grpo_step")
     wandb.define_metric("rollout/*", step_metric="grpo_step")
+    wandb.define_metric("examples_seen")
+    wandb.define_metric("tokens_seen")
 
     prompt_template = prompt_file.read_text()
     train_data = load_jsonl(train_data_path)
@@ -414,8 +427,14 @@ def main(
         logprobs=1,
     )
 
+    examples_seen = 0
+    tokens_seen = 0
+    final_eval_output_path = Path("outputs") / "eval" / f"{run_name}.jsonl"
     typer.echo("Initial validation ...")
-    val0 = run_validation(policy, llm, val_prompts, val_answers, tokenizer, eval_sampling, 0, reward_fn)
+    val0 = run_validation(
+        policy, llm, val_prompts, val_answers, tokenizer, eval_sampling, 0,
+        examples_seen, tokens_seen, reward_fn,
+    )
     typer.echo(f"  eval avg_reward={val0['metrics']['avg_reward']:.4f}  acc={val0['accuracy']:.4f}")
 
     for grpo_step in range(1, n_grpo_steps + 1):
@@ -456,7 +475,13 @@ def main(
             response_mask = response_mask[:, :max_seq_len]
 
         reward_stats = rollout_train_reward_stats(responses, repeated_gt, reward_fn)
-        wandb.log({**reward_stats, "grpo_step": grpo_step, "rollout/batch_size": len(responses)})
+        wandb.log({
+            **reward_stats,
+            "grpo_step": grpo_step,
+            "rollout/batch_size": len(responses),
+            "examples_seen": examples_seen,
+            "tokens_seen": tokens_seen,
+        })
 
         dtype = next(policy.parameters()).dtype
         raw_b = raw_rewards.unsqueeze(-1).to(device=policy_device, dtype=dtype)
@@ -497,6 +522,8 @@ def main(
                 out = get_response_log_probs(
                     policy, input_ids[sl], labels[sl], return_token_entropy=True
                 )
+                examples_seen += int(input_ids[sl].shape[0])
+                tokens_seen += int(input_ids[sl].numel())
                 log_probs = out["log_probs"]
                 token_entropy = out["token_entropy"]
                 denom = rm.sum().to(token_entropy.dtype).clamp(min=1)
@@ -531,6 +558,8 @@ def main(
                         "train/grad_norm": float(grad_norm),
                         "train/token_entropy": accum_ent / max(n_accum_logs, 1),
                         "grpo_step": grpo_step,
+                        "examples_seen": examples_seen,
+                        "tokens_seen": tokens_seen,
                     }
                     if loss_type == "grpo_clip":
                         log_payload["train/clip_fraction"] = accum_clip / max(n_accum_logs, 1)
@@ -549,6 +578,8 @@ def main(
                 "train/grad_norm": float(grad_norm),
                 "train/token_entropy": accum_ent / max(n_accum_logs, 1),
                 "grpo_step": grpo_step,
+                "examples_seen": examples_seen,
+                "tokens_seen": tokens_seen,
             }
             if loss_type == "grpo_clip":
                 log_payload["train/clip_fraction"] = accum_clip / max(n_accum_logs, 1)
@@ -564,11 +595,17 @@ def main(
                 typer.echo(f"  Final validation on {len(final_val_answers)} examples ...")
                 eval_prompts = final_val_prompts
                 eval_answers = final_val_answers
+                eval_output_path = final_eval_output_path
+            else:
+                eval_output_path = None
             val_out = run_validation(
-                policy, llm, eval_prompts, eval_answers, tokenizer, eval_sampling, grpo_step, reward_fn
+                policy, llm, eval_prompts, eval_answers, tokenizer, eval_sampling, grpo_step,
+                examples_seen, tokens_seen, eval_output_path, reward_fn,
             )
             r = float(val_out["metrics"]["avg_reward"])
             typer.echo(f"  eval avg_reward={r:.4f}  acc={val_out['accuracy']:.4f}")
+            if eval_output_path is not None:
+                typer.echo(f"  Final eval results saved to {final_eval_output_path}")
 
             samples = []
             for rec in val_out["records"][:3]:
