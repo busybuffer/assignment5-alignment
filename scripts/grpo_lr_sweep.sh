@@ -35,8 +35,8 @@ LEARNING_RATES=(
   # "1.5e-5"
   "4e-5"
   "5e-5"
-  "2e-5"
-  "3e-5"
+  # "2e-5"
+  # "3e-5"
 )
 
 echo "Sweep group: ${SWEEP_GROUP}"
