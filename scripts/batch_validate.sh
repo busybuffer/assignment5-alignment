@@ -46,8 +46,8 @@ if [[ ${#JOBS[@]} -eq 0 ]]; then
     echo "Nothing to do."
 else
     # Split jobs across cuda:0 and cuda:1, run in parallel
-    GPU0_PIDS=()
-    GPU1_PIDS=()
+    GPU0_PIDS=(); GPU1_PIDS=()
+    GPU0_LOGS=(); GPU1_LOGS=()
 
     for i in "${!JOBS[@]}"; do
         job="${JOBS[$i]}"
@@ -71,20 +71,29 @@ else
 
         if (( i % 2 == 0 )); then
             GPU0_PIDS+=($!)
+            GPU0_LOGS+=("${RESULTS_DIR}/${run}_${ckpt_name}.log")
         else
             GPU1_PIDS+=($!)
+            GPU1_LOGS+=("${RESULTS_DIR}/${run}_${ckpt_name}.log")
             # Wait for both GPUs to finish before launching the next pair
             for pid in "${GPU0_PIDS[@]}" "${GPU1_PIDS[@]}"; do
                 wait "${pid}"
             done
-            GPU0_PIDS=()
-            GPU1_PIDS=()
+            # Print last line (accuracy) from each completed log
+            for log in "${GPU0_LOGS[@]}" "${GPU1_LOGS[@]}"; do
+                [[ -f "${log}" ]] && grep -E "Accuracy|N correct" "${log}" | tail -2 || true
+            done
+            GPU0_PIDS=(); GPU1_PIDS=()
+            GPU0_LOGS=(); GPU1_LOGS=()
         fi
     done
 
     # Wait for any remaining job on cuda:0 (odd total number of jobs)
     for pid in "${GPU0_PIDS[@]}"; do
         wait "${pid}"
+    done
+    for log in "${GPU0_LOGS[@]}"; do
+        [[ -f "${log}" ]] && grep -E "Accuracy|N correct" "${log}" | tail -2 || true
     done
 fi
 
@@ -94,10 +103,19 @@ echo ""
 
 # Print summary table
 echo "===== Summary ====="
-printf "%-50s  %s\n" "Run/Checkpoint" "Accuracy"
-echo "-------------------------------------------------------------------"
-for f in "${RESULTS_DIR}"/*.json; do
-    name="$(basename "${f}" .json)"
-    acc="$(python -c "import json; d=json.load(open('${f}')); print(f\"{d['accuracy']:.4f}\")")"
-    printf "%-50s  %s\n" "${name}" "${acc}"
-done
+printf "%-52s  %-8s  %-8s  %s\n" "Run/Checkpoint" "Accuracy" "Ans_Rew" "N_correct/N_total"
+echo "-------------------------------------------------------------------------------------"
+shopt -s nullglob
+json_files=("${RESULTS_DIR}"/*.json)
+if [[ ${#json_files[@]} -eq 0 ]]; then
+    echo "  (no results found)"
+else
+    for f in "${json_files[@]}"; do
+        name="$(basename "${f}" .json)"
+        python -c "
+import json
+d = json.load(open('${f}'))
+print(f\"{name:<52}  {d['accuracy']:.4f}    {d['avg_answer_reward']:.4f}    {d['n_correct']}/{d['n_total']}\")
+"
+    done
+fi
