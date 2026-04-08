@@ -74,13 +74,25 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
         --wandb-group grpo_prompt_ablation \
         --policy-device cuda:0 --vllm-device cuda:1
         
-    # leaderboard
-        python scripts/train_grpo.py \
-            --run-name grpo_leaderboard-on-policy \
-            --prompt-file cs336_alignment/prompts/leaderboard.prompt \
-            --wandb-group grpo_leaderboard \
-            --policy-device cuda:0 --vllm-device cuda:1 \
-            --n-grpo-steps 200
+    # Leaderboard run (leaderboard):
+    #   Constraints: R1-Zero prompt, eval temperature=1.0 (hardcoded)
+    # on-policy, best lr 3e-5, 200 steps, no std normalization, no length norm
+     python scripts/train_grpo.py \
+        --run-name grpo_leaderboard \
+        --wandb-group grpo_leaderboard \
+        --n-grpo-steps 200 \
+        --no-std-normalization \
+        --policy-device cuda:0 --vllm-device cuda:1
+        
+    # off-policy
+     python scripts/train_grpo.py \
+        --run-name grpo_leaderboard_offp \
+        --loss-type grpo_clip \
+        --epochs-per-rollout-batch 2 \
+        --no-std-normalization \
+        --n-grpo-steps 200 \
+        --wandb-group grpo_offp_no_std_norm \
+        --policy-device cuda:0 --vllm-device cuda:1
 
 """
 from __future__ import annotations
@@ -364,7 +376,7 @@ def main(
         logprobs=1,
     )
     eval_sampling = SamplingParams(
-        temperature=0.0,
+        temperature=1.0,  # leaderboard requires temperature=1.0
         max_tokens=sampling_max_tokens,
         min_tokens=sampling_min_tokens,
         stop=["</answer>"],
