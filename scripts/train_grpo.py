@@ -275,7 +275,7 @@ def main(
     cliprange: float = typer.Option(0.2, "--cliprange", help="PPO-style clip for grpo_clip."),
     max_seq_len: int = typer.Option(2048, "--max-seq-len"),
     val_examples: int = typer.Option(1024, "--val-examples", help=">=1024 recommended."),
-    val_every: int = typer.Option(5, "--val-every"),
+    val_every: int = typer.Option(500, "--val-every"),
     policy_device: str = typer.Option("cuda:0", "--policy-device"),
     vllm_device: str = typer.Option("cuda:1", "--vllm-device"),
     seed: int = typer.Option(42, "--seed"),

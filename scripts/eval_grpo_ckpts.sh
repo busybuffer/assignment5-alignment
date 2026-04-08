@@ -3,20 +3,20 @@
 # Leaderboard constraints: temperature=1.0, max_tokens=1024, r1_zero prompt.
 # Usage: bash scripts/eval_grpo_ckpts.sh
 #
-# Uses two GPUs together via vLLM tensor parallelism.
+# Uses two GPUs in parallel by assigning different checkpoints to each GPU.
 
 set -euo pipefail
 
 DATA_PATH="data/MATH/validation.jsonl"
 OUT_DIR="outputs/eval"
-GPU_DEVICES="${GPU_DEVICES:-0,1}"
-TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-2}"
+GPU0="${GPU0:-0}"
+GPU1="${GPU1:-1}"
 mkdir -p "$OUT_DIR"
 
 CKPT_DIRS=(
-    "outputs/grpo_leaderboard/checkpoint_step_150"
+    # "outputs/grpo_leaderboard/checkpoint_step_150"
     "outputs/grpo_lr_sweep_20260407_lr_3e-5/checkpoint_step50"
-    # "outputs/grpo_no_std_norm/checkpoint_step50"
+    "outputs/grpo_no_std_norm/checkpoint_step50"
     # "outputs/grpo_clip_offp/checkpoint_step50"
     # "outputs/grpo_lengnorm_mean/checkpoint_step50"
     # "outputs/grpo_lengnorm_normalize/checkpoint_step50"
@@ -24,33 +24,59 @@ CKPT_DIRS=(
     # "outputs/grpo_no_clip_offp/checkpoint"
 )
 
-for ckpt_dir in "${CKPT_DIRS[@]}"; do
-    if [ ! -d "$ckpt_dir" ]; then
-        echo "Skipping $ckpt_dir (not found)"
-        continue
+GPU0_CKPTS=()
+GPU1_CKPTS=()
+
+for i in "${!CKPT_DIRS[@]}"; do
+    if (( i % 2 == 0 )); then
+        GPU0_CKPTS+=("${CKPT_DIRS[$i]}")
+    else
+        GPU1_CKPTS+=("${CKPT_DIRS[$i]}")
     fi
-
-    run_name="$(basename "$(dirname "$ckpt_dir")")"
-    out_file="${OUT_DIR}/grpo_${run_name}.jsonl"
-
-    if [ -f "$out_file" ]; then
-        echo "Skipping $run_name (already evaluated)"
-        continue
-    fi
-
-    echo "=============================="
-    echo "Evaluating: $run_name"
-    echo "GPUs: $GPU_DEVICES | tensor_parallel_size=$TENSOR_PARALLEL_SIZE"
-    echo "=============================="
-
-    CUDA_VISIBLE_DEVICES="$GPU_DEVICES" python scripts/math_baseline.py \
-        --model "$ckpt_dir" \
-        --data-path "$DATA_PATH" \
-        --output-path "$out_file" \
-        --max-tokens 1024 \
-        --temperature 1.0 \
-        --tensor-parallel-size "$TENSOR_PARALLEL_SIZE"
 done
+
+run_eval_queue() {
+    local gpu_id="$1"
+    shift
+    local ckpt_dir
+
+    for ckpt_dir in "$@"; do
+        if [ ! -d "$ckpt_dir" ]; then
+            echo "Skipping $ckpt_dir (not found)"
+            continue
+        fi
+
+        local run_name
+        local out_file
+        run_name="$(basename "$(dirname "$ckpt_dir")")"
+        out_file="${OUT_DIR}/grpo_${run_name}.jsonl"
+
+        if [ -f "$out_file" ]; then
+            echo "Skipping $run_name (already evaluated)"
+            continue
+        fi
+
+        echo "=============================="
+        echo "[GPU ${gpu_id}] Evaluating: $run_name"
+        echo "=============================="
+
+        CUDA_VISIBLE_DEVICES="$gpu_id" python scripts/math_baseline.py \
+            --model "$ckpt_dir" \
+            --data-path "$DATA_PATH" \
+            --output-path "$out_file" \
+            --max-tokens 1024 \
+            --temperature 1.0
+    done
+}
+
+run_eval_queue "$GPU0" "${GPU0_CKPTS[@]}" &
+PID0=$!
+
+run_eval_queue "$GPU1" "${GPU1_CKPTS[@]}" &
+PID1=$!
+
+wait "$PID0"
+wait "$PID1"
 
 echo ""
 echo "=============================="

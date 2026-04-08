@@ -32,7 +32,11 @@ LEARNING_RATES=(
   # "3e-5"
   # "1e-4"
   # "5e-5"
-  "1.5e-5"
+  # "1.5e-5"
+  "2e-5"
+  "3e-5"
+  "4e-5"
+  "5e-5"
 )
 
 echo "Sweep group: ${SWEEP_GROUP}"
@@ -40,7 +44,7 @@ echo "Learning rates: ${LEARNING_RATES[*]}"
 
 for lr in "${LEARNING_RATES[@]}"; do
   # Safe run name for outputs/ and W&B (avoid slashes / odd path chars)
-  run_name="${SWEEP_GROUP}_lr_${lr}"
+  run_name="${SWEEP_GROUP}_temp1_lr_${lr}"
   echo "========== LR=${lr}  run_name=${run_name} =========="
   python scripts/train_grpo.py \
     --run-name "${run_name}" \
