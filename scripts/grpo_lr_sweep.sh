@@ -44,15 +44,15 @@ echo "Learning rates: ${LEARNING_RATES[*]}"
 
 for lr in "${LEARNING_RATES[@]}"; do
   # Safe run name for outputs/ and W&B (avoid slashes / odd path chars)
-  run_name="${SWEEP_GROUP}_temp1_lr_${lr}"
+  run_name="${SWEEP_GROUP}_eval_full_lr_${lr}"
   echo "========== LR=${lr}  run_name=${run_name} =========="
   python scripts/train_grpo.py \
     --run-name "${run_name}" \
     --wandb-group "${SWEEP_GROUP}" \
     --wandb-tags "lr_sweep,lr_${lr}" \
     --learning-rate "${lr}" \
-    --val-examples 1024 \
-    --val-every 5 \
+    --val-examples 5000 \
+    --val-every 10 \
     --policy-device "${POLICY_DEVICE}" \
     --vllm-device "${VLLM_DEVICE}" \
     "$@"
