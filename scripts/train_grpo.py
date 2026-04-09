@@ -17,10 +17,11 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
         --val-examples 1024 \
         --policy-device cuda:0 --vllm-device cuda:1
 
-    # No baseline: optimize with per-rollout raw reward from the grader
+    # Std normalization comparison (grpo_group_standard_deviation):
      python scripts/train_grpo.py \
-        --run-name grpo_temp1_no_bl \
-        --loss-type no_baseline \
+        --run-name grpo_temp1_no_std_norm \
+        --no-std-normalization \
+        --wandb-group grpo_std_sweep \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Length normalization comparison (grpo_length_normalization):
@@ -38,19 +39,18 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
         --wandb-group grpo_lengnorm_sweep \
         --policy-device cuda:0 --vllm-device cuda:1
 
-    # Std normalization comparison (grpo_group_standard_deviation):
-     python scripts/train_grpo.py \
-        --run-name grpo_temp1_no_std_norm \
-        --no-std-normalization \
-        --wandb-group grpo_std_sweep \
-        --policy-device cuda:0 --vllm-device cuda:1
-
     # Off-policy GRPO-Clip (grpo_off_policy):
      python scripts/train_grpo.py \
         --run-name grpo_temp1_clip_offp \
         --loss-type grpo_clip \
         --epochs-per-rollout-batch 2 \
         --wandb-group grpo_offpolicy_sweep \
+        --policy-device cuda:0 --vllm-device cuda:1
+
+    # No baseline: optimize with per-rollout raw reward from the grader
+     python scripts/train_grpo.py \
+        --run-name grpo_temp1_no_bl \
+        --loss-type no_baseline \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Off-policy hyperparameter sweep (grpo_off_policy_sweep):
@@ -614,7 +614,7 @@ def main(
             with open(rollout_log_path, "a") as f:
                 f.write(json.dumps({"grpo_step": grpo_step, "samples": samples}) + "\n")
 
-        if grpo_step % 50 == 0:
+        if n_grpo_steps > 50 and grpo_step % 50 == 0:
             ckpt_dir = out_dir / f"checkpoint_step_{grpo_step}"
             ckpt_dir.mkdir(parents=True, exist_ok=True)
             policy.save_pretrained(ckpt_dir)
