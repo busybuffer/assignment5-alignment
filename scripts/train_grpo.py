@@ -19,35 +19,35 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
 
     # No baseline: optimize with per-rollout raw reward from the grader
      python scripts/train_grpo.py \
-        --run-name grpo_no_bl \
+        --run-name grpo_temp1_no_bl \
         --loss-type no_baseline \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Length normalization comparison (grpo_length_normalization):
     #   Run A: masked_mean (per-token average, default)
      python scripts/train_grpo.py \
-        --run-name grpo_lengnorm_mean \
+        --run-name grpo_temp1_lengnorm_mean \
         --length-norm masked_mean \
         --wandb-group grpo_lengnorm_sweep \
         --policy-device cuda:0 --vllm-device cuda:1
 
     #   Run B: masked_normalize (per-sequence sum, no length penalty)
      python scripts/train_grpo.py \
-        --run-name grpo_lengnorm_normalize \
+        --run-name grpo_temp1_lengnorm_normalize \
         --length-norm masked_normalize \
         --wandb-group grpo_lengnorm_sweep \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Std normalization comparison (grpo_group_standard_deviation):
      python scripts/train_grpo.py \
-        --run-name grpo_no_std_norm \
+        --run-name grpo_temp1_no_std_norm \
         --no-std-normalization \
         --wandb-group grpo_std_sweep \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Off-policy GRPO-Clip (grpo_off_policy):
      python scripts/train_grpo.py \
-        --run-name grpo_clip_offp \
+        --run-name grpo_temp1_clip_offp \
         --loss-type grpo_clip \
         --epochs-per-rollout-batch 2 \
         --wandb-group grpo_offpolicy_sweep \
@@ -62,22 +62,16 @@ Running (from repo root, after ``uv sync`` and ``wandb login``):
     # Off-policy GRPO-No-Clip ablation (grpo_off_policy_clip_ablation):
     #   Use best off-policy config (ep2, tb256) with unclipped IS-weighted loss
      python scripts/train_grpo.py \
-        --run-name grpo_no_clip_offp \
+        --run-name grpo_temp1_no_clip_offp \
         --loss-type grpo_no_clip \
         --epochs-per-rollout-batch 2 \
         --wandb-group grpo_clip_ablation \
         --policy-device cuda:0 --vllm-device cuda:1
 
     # Prompt ablation (grpo_prompt_ablation):
-    #   Run A: R1-Zero prompt (baseline)
-     python scripts/train_grpo.py \
-        --run-name grpo_prompt_r1zero \
-        --wandb-group grpo_prompt_ablation \
-        --policy-device cuda:0 --vllm-device cuda:1
-
     #   Run B: question-only prompt + question_only reward fn
      python scripts/train_grpo.py \
-        --run-name grpo_prompt_qonly \
+        --run-name grpo_temp1_prompt_qonly \
         --prompt-type question_only \
         --wandb-group grpo_prompt_ablation \
         --policy-device cuda:0 --vllm-device cuda:1
@@ -262,7 +256,7 @@ def main(
     prompt_file: Path = typer.Option(DEFAULT_PROMPT_FILE, "--prompt-file", help="Path to .prompt template file (use {question} placeholder). Overridden by --prompt-type."),
     reward_fn_name: str = typer.Option("r1_zero", "--reward-fn", help="r1_zero | question_only. Overridden by --prompt-type."),
     n_grpo_steps: int = typer.Option(50, "--n-grpo-steps"),
-    learning_rate: float = typer.Option(3e-5, "--learning-rate"),
+    learning_rate: float = typer.Option(4e-5, "--learning-rate"),
     advantage_eps: float = typer.Option(1e-6, "--advantage-eps"),
     rollout_batch_size: int = typer.Option(256, "--rollout-batch-size"),
     group_size: int = typer.Option(8, "--group-size"),
