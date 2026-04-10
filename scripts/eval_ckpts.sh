@@ -12,6 +12,7 @@
 #   bash scripts/eval_ckpts.sh
 #   bash scripts/eval_ckpts.sh outputs/sft_full outputs/ei_G4_e1_db512
 #   bash scripts/eval_ckpts.sh outputs/sft_eval1*/
+#   bash scripts/eval_ckpts.sh outputs/ei*/
 #   TEMPERATURE=1.0 bash scripts/eval_ckpts.sh outputs/grpo_run/checkpoint_step50
 
 set -euo pipefail

@@ -105,7 +105,7 @@ for f in glob.glob('outputs/eval/grpo_*.jsonl'):
 for answer_acc, format_acc, name, format_correct, answer_correct, total in sorted(rows, reverse=True):
     print(
         f'  {name:<45} '
-        f'answer={answer_acc:.4f}'
+        f'answer={answer_acc:.4f}\t'
         f'format={format_acc:.4f}'
     )
 "

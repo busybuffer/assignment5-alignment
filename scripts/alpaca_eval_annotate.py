@@ -30,7 +30,7 @@ Usage:
         --backend cerebras
 
     # Resume interrupted run:
-    python scripts/alpaca_eval_annotate.py \
+    python3 scripts/alpaca_eval_annotate.py \
         --model-outputs eval/alpaca_eval_baseline.json \
         --output-path outputs/alpaca_eval_annotated.jsonl \
         --resume
@@ -45,42 +45,15 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import time
 from pathlib import Path
 
 import typer
 
-app = typer.Typer()
+from cs336_alignment.api_client import BACKEND_CONFIGS, load_api_key, make_client
 
-# Backend configs: model name, RPM limit, env var for API key, base URL (None = SDK default)
-BACKEND_CONFIGS = {
-    "groq": {
-        "model": "llama-3.3-70b-versatile",
-        "rpm": 28,           # free tier: 30 RPM
-        "env_key": "GROQ_API_KEY",
-        "base_url": None,    # use groq SDK
-    },
-    "cerebras": {
-        "model": "llama-3.3-70b-instruct",
-        "rpm": 28,
-        "env_key": "CEREBRAS_API_KEY",
-        "base_url": "https://api.cerebras.ai/v1",
-    },
-    "openrouter": {
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
-        "rpm": 18,           # free tier: 20 RPM
-        "env_key": "OPENROUTER_API_KEY",
-        "base_url": "https://openrouter.ai/api/v1",
-    },
-    "together": {
-        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
-        "rpm": 58,           # free tier: 60 RPM
-        "env_key": "TOGETHER_API_KEY",
-        "base_url": "https://api.together.xyz/v1",
-    },
-}
+app = typer.Typer()
 
 # Official GPT-4 Turbo (gpt4_1106_preview) reference outputs.
 # Download with:
@@ -133,45 +106,16 @@ def parse_preference(text: str) -> str | None:
     return matches[-1] if matches else None
 
 
-def make_client(backend: str, api_key: str):
-    """Return an OpenAI-compatible client for the given backend."""
-    cfg = BACKEND_CONFIGS[backend]
-    if backend == "groq":
-        from groq import Groq
-        return Groq(api_key=api_key)
-    else:
-        # Cerebras and others expose an OpenAI-compatible API
-        from openai import OpenAI
-        return OpenAI(api_key=api_key, base_url=cfg["base_url"])
-
-
-def call_api(client, model: str, instruction: str, output_a: str, output_b: str,
-             max_retries: int = 5) -> str | None:
-    """Call the annotator API and return 'A', 'B', or None. Retries on 429."""
+def call_api(client, model: str, instruction: str, output_a: str, output_b: str) -> str | None:
+    """Call the annotator API and return 'A', 'B', or None."""
+    from cs336_alignment.api_client import call_chat
     prompt = ANNOTATOR_PROMPT.format(
         instruction=instruction,
         output_a=output_a,
         output_b=output_b,
     )
-    for attempt in range(max_retries):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=512,
-                temperature=0.0,
-            )
-            return parse_preference(response.choices[0].message.content)
-        except Exception as e:
-            msg = str(e)
-            if "429" in msg and attempt < max_retries - 1:
-                wait = 30 * (attempt + 1)  # 30s, 60s, 90s, 120s
-                typer.echo(f"  Rate limited, waiting {wait}s before retry {attempt+1}/{max_retries-1}...", err=True)
-                time.sleep(wait)
-            else:
-                typer.echo(f"  API error: {e}", err=True)
-                return None
-    return None
+    text = call_chat(client, model, [{"role": "user", "content": prompt}], max_tokens=512)
+    return parse_preference(text) if text else None
 
 
 def compute_winrate(records: list[dict]) -> dict[str, float]:
@@ -283,9 +227,9 @@ def main(
     rpm = cfg["rpm"]
     seconds_per_request = 60.0 / rpm
 
-    key = api_key or os.environ.get(cfg["env_key"], "")
+    key = load_api_key(backend, api_key)
     if not key:
-        typer.echo(f"Set {cfg['env_key']} env var or pass --api-key")
+        typer.echo(f"No API key found. Set {cfg['env_key']}, pass --api-key, or put it in {cfg['key_file']}")
         raise typer.Exit(1)
 
     client = make_client(backend, key)

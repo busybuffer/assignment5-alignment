@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from pathlib import Path
 
 import torch
@@ -86,6 +87,98 @@ class PackedSFTDataset(Dataset):
             "input_ids": self._input_ids[i],
             "labels": self._labels[i],
         }
+
+
+def _parse_hh_conversation(text: str) -> tuple[str, str] | None:
+    """
+    Parse an HH conversation string into (instruction, response).
+
+    Returns None for multi-turn conversations (human sent >1 message)
+    or malformed text.
+
+    Format: "\n\nHuman: ...\n\nAssistant: ...\n\nHuman: ...\n\nAssistant: ..."
+    We accept only single-turn: exactly one Human turn followed by one Assistant turn.
+    """
+    roles = re.findall(r"\n\n(Human|Assistant): ", text)
+    if len(roles) != 2 or roles[0] != "Human" or roles[1] != "Assistant":
+        return None  # multi-turn or malformed
+
+    # Extract content of each turn
+    parts = re.split(r"\n\nHuman: |\n\nAssistant: ", text)
+    parts = [p for p in parts if p]  # drop leading empty string
+
+    if len(parts) < 2:
+        return None
+
+    return parts[0].strip(), parts[1].strip()
+
+
+# Subset names to load (red-team-attempts excluded — no chosen/rejected pairs)
+HH_SUBSETS = [
+    "helpful-base",
+    "helpful-online",
+    "helpful-rejection-sampled",
+    "harmless-base",
+]
+
+
+def load_hh_dataset(data_dir: str | Path, split: str = "train") -> list[dict]:
+    """
+    Load the Anthropic HH-RLHF dataset.
+
+    Reads all four subsets (helpful-base, helpful-online,
+    helpful-rejection-sampled, harmless-base) for the given split
+    and returns a combined list of examples.
+
+    Each returned example is a dict with:
+        instruction (str): the first human message
+        chosen      (str): the preferred assistant response
+        rejected    (str): the dispreferred assistant response
+        source      (str): which subset the example came from
+
+    Multi-turn conversations (human sent >1 message) are dropped.
+
+    Args:
+        data_dir: path to the directory containing the HH subsets
+                  (e.g. "data/hh")
+        split:    "train" or "test"
+    """
+    data_dir = Path(data_dir)
+    examples = []
+
+    for subset in HH_SUBSETS:
+        path = data_dir / subset / f"{split}.jsonl"
+        if not path.exists():
+            raise FileNotFoundError(f"Expected file not found: {path}")
+
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+
+                chosen_parsed = _parse_hh_conversation(obj["chosen"])
+                rejected_parsed = _parse_hh_conversation(obj["rejected"])
+
+                # Drop multi-turn or mismatched examples
+                if chosen_parsed is None or rejected_parsed is None:
+                    continue
+                if chosen_parsed[0] != rejected_parsed[0]:
+                    # Instructions must match — they should share the same prompt
+                    continue
+
+                instruction, chosen_response = chosen_parsed
+                _, rejected_response = rejected_parsed
+
+                examples.append({
+                    "instruction": instruction,
+                    "chosen": chosen_response,
+                    "rejected": rejected_response,
+                    "source": subset,
+                })
+
+    return examples
 
 
 def iterate_batches(
