@@ -30,19 +30,12 @@ import torch
 import typer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from cs336_alignment.data import load_hh_dataset
-from cs336_alignment.dpo import compute_per_instance_dpo_loss
+from cs336_alignment.data import ALPACA_TEMPLATE, load_hh_dataset
+from cs336_alignment.dpo import _batch_sequence_log_probs, compute_per_instance_dpo_loss
 
 app = typer.Typer()
 
 
-def _sequence_log_prob_no_grad(model: torch.nn.Module, input_ids: torch.Tensor) -> float:
-    """Return sum of token log-probs for a sequence (for accuracy computation)."""
-    import torch.nn.functional as F
-    with torch.no_grad():
-        logits = model(input_ids).logits
-    log_probs = F.log_softmax(logits[:, :-1, :], dim=-1)
-    return log_probs.gather(2, input_ids[:, 1:].unsqueeze(-1)).squeeze(-1).sum().item()
 
 
 @app.command()
@@ -138,19 +131,16 @@ def main(
     optimizer = torch.optim.RMSprop(policy.parameters(), lr=lr)
 
     # ------------------------------------------------------------------ val helper
+    eos = tokenizer.eos_token or ""
+
+    def tok(text: str, device: str) -> torch.Tensor:
+        ids = tokenizer.encode(text, add_special_tokens=False)
+        return torch.tensor(ids, dtype=torch.long, device=device)
+
     def run_validation() -> float:
         policy.eval()
         correct = 0
-        total = 0
-        examples_to_eval = val_examples[:val_batches]
-        for ex in examples_to_eval:
-            from cs336_alignment.data import ALPACA_TEMPLATE
-            eos = tokenizer.eos_token or ""
-
-            def tok(text, device):
-                ids = tokenizer.encode(text, add_special_tokens=False)
-                return torch.tensor([ids], dtype=torch.long, device=device)
-
+        for ex in val_examples[:val_batches]:
             chosen_text = ALPACA_TEMPLATE.format(
                 instruction=ex["instruction"], response=ex["chosen"]
             ) + eos
@@ -158,14 +148,16 @@ def main(
                 instruction=ex["instruction"], response=ex["rejected"]
             ) + eos
 
-            lp_chosen = _sequence_log_prob_no_grad(policy, tok(chosen_text, policy_device))
-            lp_rejected = _sequence_log_prob_no_grad(policy, tok(rejected_text, policy_device))
-
-            correct += int(lp_chosen > lp_rejected)
-            total += 1
+            # Batch chosen + rejected in one forward pass
+            log_probs = _batch_sequence_log_probs(
+                policy,
+                [tok(chosen_text, policy_device), tok(rejected_text, policy_device)],
+                no_grad=True,
+            )
+            correct += int(log_probs[0].item() > log_probs[1].item())
 
         policy.train()
-        return correct / total if total > 0 else 0.0
+        return correct / len(val_examples[:val_batches])
 
     # ------------------------------------------------------------------ training
     best_val_acc = 0.0
