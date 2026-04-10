@@ -5,7 +5,7 @@ Loads AlpacaEval instructions, generates outputs with greedy decoding, and
 serializes results as a JSON array compatible with the AlpacaEval evaluator.
 
 Usage:
-    uv run python scripts/alpaca_eval_baseline.py \
+    python scripts/alpaca_eval_baseline.py \
         --model meta-llama/Meta-Llama-3.1-8B \
         --output-path outputs/alpaca_eval_baseline.json
 
@@ -14,6 +14,7 @@ Usage:
         --model meta-llama/Meta-Llama-3.1-8B \
         --output-path outputs/alpaca_eval_baseline.json \
         --generator llama-3.1-8b-base
+        
 """
 from __future__ import annotations
 

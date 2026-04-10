@@ -1,18 +1,26 @@
 """
-Evaluate Llama 3.1 8B zero-shot performance on MMLU using vLLM.
+Evaluate Llama 3.1 8B (base or SFT) performance on MMLU using vLLM.
 
-Loads MMLU CSV examples, formats them using the zero-shot system prompt,
-generates responses with greedy decoding, parses predicted answer letters,
-computes accuracy (overall and per subject), and serializes results to disk.
+Supports two prompt formats:
+  - "zero_shot": zero-shot system prompt (for base model)
+  - "sft":       Alpaca instruction-tuning template (for SFT model)
 
 Usage:
-    uv run python scripts/mmlu_baseline.py \
+    # Base model (zero-shot):
+    python scripts/mmlu_baseline.py \
         --model meta-llama/Meta-Llama-3.1-8B \
         --data-dir data/mmlu/test \
         --output-path outputs/mmlu_baseline_results.jsonl
 
+    # SFT model:
+    python scripts/mmlu_baseline.py \
+        --model outputs/sft/llama-3.1-8b-sft \
+        --data-dir data/mmlu/test \
+        --output-path outputs/mmlu_sft_results.jsonl \
+        --prompt-format sft
+
     # Limit examples for quick testing:
-    uv run python scripts/mmlu_baseline.py \
+    python scripts/mmlu_baseline.py \
         --model meta-llama/Meta-Llama-3.1-8B \
         --data-dir data/mmlu/test \
         --output-path outputs/mmlu_baseline_results.jsonl \
@@ -34,10 +42,17 @@ app = typer.Typer()
 
 PROMPT_DIR = Path(__file__).parent.parent / "cs336_alignment" / "prompts"
 
-# The zero-shot system prompt wraps {instruction} inside a Query/Answer block.
+# Zero-shot system prompt (base model)
 SYSTEM_PROMPT_TEMPLATE = (PROMPT_DIR / "zero_shot_system_prompt.prompt").read_text()
 
-# MMLU-specific instruction injected as {instruction} into the system prompt.
+# Alpaca SFT template (instruction-tuned model)
+ALPACA_TEMPLATE = (
+    "Below is an instruction that describes a task. "
+    "Write a response that appropriately completes the request.\n\n"
+    "### Instruction:\n{instruction}\n\n### Response:\n"
+)
+
+# MMLU-specific instruction (shared by both formats)
 MMLU_INSTRUCTION_TEMPLATE = (PROMPT_DIR / "mmlu.prompt").read_text()
 
 LETTER_MAP = ["A", "B", "C", "D"]
@@ -76,8 +91,11 @@ def load_mmlu_examples(data_dir: Path) -> list[dict]:
     return examples
 
 
-def format_prompt(example: dict) -> str:
-    """Format an MMLU example into the full prompt string."""
+def format_prompt(example: dict, prompt_format: str = "zero_shot") -> str:
+    """Format an MMLU example into the full prompt string.
+
+    prompt_format: "zero_shot" (base model) or "sft" (Alpaca-tuned model).
+    """
     instruction = MMLU_INSTRUCTION_TEMPLATE.format(
         subject=example["subject"],
         question=example["question"],
@@ -86,6 +104,8 @@ def format_prompt(example: dict) -> str:
         option_c=example["options"][2],
         option_d=example["options"][3],
     )
+    if prompt_format == "sft":
+        return ALPACA_TEMPLATE.format(instruction=instruction)
     return SYSTEM_PROMPT_TEMPLATE.format(instruction=instruction)
 
 
@@ -126,14 +146,24 @@ def main(
         "--dtype",
         help="Model dtype: 'auto', 'float16', 'bfloat16'.",
     ),
+    prompt_format: str = typer.Option(
+        "zero_shot",
+        "--prompt-format",
+        help="Prompt format: 'zero_shot' (base model) or 'sft' (Alpaca-tuned model).",
+    ),
 ):
+    if prompt_format not in ("zero_shot", "sft"):
+        typer.echo(f"Unknown prompt format '{prompt_format}'. Choose 'zero_shot' or 'sft'.")
+        raise typer.Exit(1)
+
+    typer.echo(f"Prompt format: {prompt_format}")
     typer.echo(f"Loading MMLU examples from {data_dir} ...")
     examples = load_mmlu_examples(data_dir)
     if max_examples > 0:
         examples = examples[:max_examples]
     typer.echo(f"Loaded {len(examples)} examples.")
 
-    prompts = [format_prompt(ex) for ex in examples]
+    prompts = [format_prompt(ex, prompt_format) for ex in examples]
 
     typer.echo(f"Loading model {model} with vLLM ...")
     llm = LLM(
@@ -143,12 +173,15 @@ def main(
         dtype=dtype,
     )
 
-    # Greedy decoding; stop when the model starts the next conversation turn.
+    # Greedy decoding. Stop tokens differ by format:
+    # - zero_shot: "# Query:" starts the next conversation turn
+    # - sft: "###" starts the next Alpaca section header
+    stop_tokens = ["###"] if prompt_format == "sft" else ["# Query:"]
     sampling_params = SamplingParams(
         temperature=0.0,
         top_p=1.0,
         max_tokens=max_tokens,
-        stop=["# Query:"],
+        stop=stop_tokens,
     )
 
     typer.echo("Generating responses ...")
@@ -189,6 +222,7 @@ def main(
                 "question": example["question"],
                 "options": example["options"],
                 "answer": gold,
+                "prompt_format": prompt_format,
                 "prompt": prompts[total - 1],
                 "response": response,
                 "predicted": predicted,
@@ -214,3 +248,20 @@ def main(
 
 if __name__ == "__main__":
     app()
+
+
+# # Error analysis
+# python3 -c "
+# import json
+# results = [json.loads(l) for l in open('outputs/mmlu_baseline_results.jsonl')]
+# failures = [r for r in results if r['predicted'] is None]
+# print(f'Total: {len(results)}, Unparseable: {len(failures)}')
+# for r in failures[:5]:
+#     print('---')
+#     print('Subject:', r['subject'])
+#     print('Question:', r['question'])
+#     print('Gold answer:', r['answer'])
+#     print('Predicted answer:', r['predicted'])
+#     print('Response:', repr(r['response'][:300]))
+# "
+

@@ -6,13 +6,13 @@ generates responses with greedy decoding, parses the last number as the
 predicted answer, computes accuracy, and serializes results to disk.
 
 Usage:
-    uv run python scripts/gsm8k_baseline.py \
+    python scripts/gsm8k_baseline.py \
         --model meta-llama/Meta-Llama-3.1-8B \
         --data-path data/gsm8k/test.jsonl \
         --output-path outputs/gsm8k_baseline_results.jsonl
 
     # Limit examples for quick testing:
-    uv run python scripts/gsm8k_baseline.py \
+    python scripts/gsm8k_baseline.py \
         --model meta-llama/Meta-Llama-3.1-8B \
         --data-path data/gsm8k/test.jsonl \
         --output-path outputs/gsm8k_baseline_results.jsonl \
@@ -162,3 +162,21 @@ def main(
 
 if __name__ == "__main__":
     app()
+
+
+
+# # Error analysis
+# python3 -c "
+# import json
+# import random
+# results = [json.loads(l) for l in open('outputs/gsm8k_baseline_results.jsonl')]
+# failures = [r for r in results if r['predicted'] is None or r['predicted'] != r['gold']]
+# print(f'Total: {len(results)}, Unparseable: {len(failures)}')
+# for r in random.sample(failures, min(10, len(failures))):
+#     print('---')
+#     print('Question:', r['question'])
+#     print('Gold answer:', r['gold'])
+#     print('Predicted answer:', r['predicted'])
+#     # print('Response:', repr(r['response'][:300]))
+# "
+

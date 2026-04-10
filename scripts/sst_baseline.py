@@ -5,18 +5,18 @@ Loads SimpleSafetyTests CSV, generates outputs with greedy decoding, and
 serializes results as JSONL compatible with scripts/evaluate_safety.py.
 
 Usage:
-    uv run python scripts/sst_baseline.py \
+    python scripts/sst_baseline.py \
         --model meta-llama/Meta-Llama-3.1-8B \
         --output-path outputs/sst_baseline_results.jsonl
 
     # Limit examples for quick testing:
-    uv run python scripts/sst_baseline.py \
+    python scripts/sst_baseline.py \
         --model meta-llama/Meta-Llama-3.1-8B \
         --output-path outputs/sst_baseline_results.jsonl \
         --max-examples 20
 
 Then evaluate with:
-    uv run python scripts/evaluate_safety.py \
+    python scripts/evaluate_safety.py \
         --input-path outputs/sst_baseline_results.jsonl \
         --model-name-or-path /data/a5-alignment/models/Llama-3.3-70B-Instruct \
         --num-gpus 2 \
