@@ -17,6 +17,11 @@ Usage (local vLLM — Llama 3.1 8B):
         --data-path data/simple_safety_tests/simple_safety_tests.csv \
         --output-path outputs/sst_baseline_results.jsonl \
         --max-examples 20
+        
+    CUDA_VISIBLE_DEVICES=1 python scripts/sst_baseline.py \
+        --model outputs/sft/llama-3.1-8b-sft \
+        --data-path data/simple_safety_tests/simple_safety_tests.csv \
+        --output-path outputs/sst_sft_results.jsonl
 
 PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/sst_baseline.py \
     --data-path data/simple_safety_tests/simple_safety_tests.csv \
