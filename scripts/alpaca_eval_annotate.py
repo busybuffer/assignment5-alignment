@@ -8,38 +8,34 @@ using Llama 3.3 70B Instruct as the annotator.
 Each pair is judged twice (swapping A/B order) to control for position bias.
 Winrate and length-controlled winrate are computed and saved.
 
-Supported backends (both free):
-  groq      -- https://console.groq.com      (GROQ_API_KEY)      100k TPD limit
-  cerebras  -- https://cloud.cerebras.ai     (CEREBRAS_API_KEY)  faster, higher limits
+Supported backends (all free):
+  together   -- https://api.together.xyz      (TOGETHER_API_KEY)  58 RPM
+  groq       -- https://console.groq.com      (GROQ_API_KEY)      28 RPM
+  cerebras   -- https://cloud.cerebras.ai     (CEREBRAS_API_KEY)  28 RPM
+  openrouter -- https://openrouter.ai         (OPENROUTER_API_KEY) 18 RPM
 
 Setup:
-    pip install groq openai scikit-learn  # openai SDK used for cerebras
+    pip install groq openai scikit-learn
 
 Usage:
-    # Groq backend (default):
-    export GROQ_API_KEY="gsk_..."
+    # Together AI backend (recommended, highest RPM):
     python scripts/alpaca_eval_annotate.py \
-        --model-outputs eval/alpaca_eval_baseline.json \
-        --output-path outputs/alpaca_eval_annotated.jsonl
-
-    # Cerebras backend:
-    export CEREBRAS_API_KEY="csk_..."
-    python scripts/alpaca_eval_annotate.py \
-        --model-outputs eval/alpaca_eval_baseline.json \
+        --model-outputs outputs/alpaca_eval_baseline.json \
         --output-path outputs/alpaca_eval_annotated.jsonl \
-        --backend cerebras
+        --backend together
+
+    # Groq backend:
+    python scripts/alpaca_eval_annotate.py \
+        --model-outputs outputs/alpaca_eval_baseline.json \
+        --output-path outputs/alpaca_eval_annotated.jsonl \
+        --backend groq
 
     # Resume interrupted run:
     python3 scripts/alpaca_eval_annotate.py \
-        --model-outputs eval/alpaca_eval_baseline.json \
+        --model-outputs outputs/alpaca_eval_baseline.json \
         --output-path outputs/alpaca_eval_annotated.jsonl \
+        --backend together \
         --resume
-    
-    python3 scripts/alpaca_eval_annotate.py \
-        --model-outputs eval/alpaca_eval_baseline.json \
-        --output-path outputs/alpaca_eval_annotated.jsonl \
-        --backend cerebras \
-        --resume   # picks up where Groq left off
 """
 from __future__ import annotations
 
@@ -213,9 +209,9 @@ def main(
         help="API key (defaults to the env var for the selected backend).",
     ),
     backend: str = typer.Option(
-        "groq",
+        "together",
         "--backend",
-        help="Backend to use for annotation: 'groq' or 'cerebras'.",
+        help=f"Backend to use for annotation. Choices: {list(BACKEND_CONFIGS)}",
     ),
 ):
     if backend not in BACKEND_CONFIGS:

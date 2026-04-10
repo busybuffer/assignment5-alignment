@@ -10,10 +10,10 @@ Usage:
         --output-path outputs/alpaca_eval_baseline.json
 
     # With a custom generator name:
-    uv run python scripts/alpaca_eval_baseline.py \
-        --model meta-llama/Meta-Llama-3.1-8B \
-        --output-path outputs/alpaca_eval_baseline.json \
-        --generator llama-3.1-8b-base
+    python scripts/alpaca_eval_baseline.py \
+        --model outputs/sft/llama-3.1-8b-sft \
+        --output-path outputs/alpaca_eval_sft.json \
+        --generator llama-3.1-8b-sft
         
 """
 from __future__ import annotations

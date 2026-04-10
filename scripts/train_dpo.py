@@ -75,6 +75,18 @@ def main(
     ref_device: str = typer.Option("cuda:1", "--ref-device"),
     dtype: str = typer.Option("bfloat16", "--dtype"),
     seed: int = typer.Option(42, "--seed"),
+    resume_from: str = typer.Option(
+        "",
+        "--resume-from",
+        help="Path to a checkpoint to resume from (e.g. outputs/dpo/model/best). "
+             "Must also pass --resume-step so the trainer knows how many examples to skip.",
+    ),
+    resume_step: int = typer.Option(
+        0,
+        "--resume-step",
+        help="Optimizer step at which the checkpoint was saved. "
+             "Used to skip already-processed training examples.",
+    ),
     # W&B
     wandb_project: str = typer.Option("cs336-dpo", "--wandb-project"),
     use_wandb: bool = typer.Option(True, "--wandb/--no-wandb"),
@@ -108,16 +120,17 @@ def main(
     typer.echo(f"Train: {len(train_examples)} | Val: {len(val_examples)}")
 
     # ------------------------------------------------------------------ models
-    typer.echo(f"Loading policy model on {policy_device} ...")
+    policy_ckpt = resume_from if resume_from else model_id
+    typer.echo(f"Loading policy model from {policy_ckpt} on {policy_device} ...")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     policy = AutoModelForCausalLM.from_pretrained(
-        model_id,
+        policy_ckpt,
         torch_dtype=torch_dtype,
         attn_implementation="flash_attention_2",
     ).to(policy_device)
     policy.train()
 
-    typer.echo(f"Loading reference model on {ref_device} ...")
+    typer.echo(f"Loading reference model from {model_id} on {ref_device} ...")
     ref_model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=torch_dtype,
@@ -161,12 +174,18 @@ def main(
 
     # ------------------------------------------------------------------ training
     best_val_acc = 0.0
-    optimizer_step = 0
+    optimizer_step = resume_step
     microbatch_idx = 0
     accumulated_loss = 0.0
 
+    # Skip examples already processed before the resume checkpoint
+    skip_examples = resume_step * grad_accum_steps
+    if skip_examples > 0:
+        typer.echo(f"Resuming from step {resume_step}, skipping {skip_examples} examples ...")
+        train_examples = train_examples[skip_examples:]
+
     total_steps = (len(train_examples) // grad_accum_steps) if max_steps < 0 else max_steps
-    typer.echo(f"Total optimizer steps: {total_steps}")
+    typer.echo(f"Remaining optimizer steps: {total_steps}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     best_ckpt_dir = output_dir / "best"
@@ -215,9 +234,15 @@ def main(
                     import wandb
                     wandb.log({"val/accuracy": val_acc, "optimizer_step": optimizer_step})
 
+                # Save checkpoint for every val step
+                ckpt_dir = output_dir / f"step-{optimizer_step}"
+                policy.save_pretrained(ckpt_dir)
+                tokenizer.save_pretrained(ckpt_dir)
+                typer.echo(f"  Saved checkpoint to {ckpt_dir}")
+
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
-                    typer.echo(f"  New best val_acc={best_val_acc:.4f}, saving model ...")
+                    typer.echo(f"  New best val_acc={best_val_acc:.4f}, saving best ...")
                     policy.save_pretrained(best_ckpt_dir)
                     tokenizer.save_pretrained(best_ckpt_dir)
 

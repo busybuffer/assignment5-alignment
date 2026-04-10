@@ -253,7 +253,7 @@ if __name__ == "__main__":
 # # Error analysis
 # python3 -c "
 # import json
-# results = [json.loads(l) for l in open('outputs/mmlu_baseline_results.jsonl')]
+# results = [json.loads(l) for l in open('outputs/mmlu_dpo_results.jsonl')]
 # failures = [r for r in results if r['predicted'] is None]
 # print(f'Total: {len(results)}, Unparseable: {len(failures)}')
 # for r in failures[:5]:

@@ -17,6 +17,12 @@ Usage:
         --data-path data/gsm8k/test.jsonl \
         --output-path outputs/gsm8k_baseline_results.jsonl \
         --max-examples 100
+
+    CUDA_VISIBLE_DEVICES=1 python scripts/gsm8k_baseline.py \
+        --model outputs/sft/llama-3.1-8b-sft \
+        --data-path data/gsm8k/test.jsonl \
+        --output-path outputs/gsm8k_sft_results.jsonl
+
 """
 from __future__ import annotations
 

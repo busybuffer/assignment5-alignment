@@ -23,13 +23,13 @@ Usage (local vLLM — Llama 3.1 8B):
         --data-path data/simple_safety_tests/simple_safety_tests.csv \
         --output-path outputs/sst_sft_results.jsonl
 
-PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/sst_baseline.py \
-    --data-path data/simple_safety_tests/simple_safety_tests.csv \
-    --output-path outputs/sst_baseline_results_llama-3-8b-instruct-lite.jsonl \
-    --use-api together \
-    --api-model meta-llama/Meta-Llama-3-8B-Instruct-Lite
-
 Then evaluate with:
+    PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/sst_baseline.py \
+        --data-path data/simple_safety_tests/simple_safety_tests.csv \
+        --output-path outputs/sst_baseline_results_llama-3-8b-instruct-lite.jsonl \
+        --use-api together \
+        --api-model meta-llama/Meta-Llama-3-8B-Instruct-Lite
+
     PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/evaluate_safety.py \
         --input-path outputs/sst_baseline_results_llama-3-8b-instruct-lite.jsonl \
         --output-path outputs/sst_baseline_annotated_llama-3-8b-instruct-lite.jsonl \
@@ -38,6 +38,16 @@ Then evaluate with:
     PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/evaluate_safety.py \
         --input-path outputs/sst_baseline_results_llama-3.3-70b.jsonl \
         --output-path outputs/sst_baseline_annotated_llama-3.3-70b.jsonl \
+        --use-api together
+
+    PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/evaluate_safety.py \
+        --input-path outputs/sst_baseline_results.jsonl \
+        --output-path outputs/sst_baseline_annotated.jsonl \
+        --use-api together
+    
+    PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/evaluate_safety.py \
+        --input-path outputs/sst_sft_results.jsonl \
+        --output-path outputs/sst_sft_annotated.jsonl \
         --use-api together
 
 """
