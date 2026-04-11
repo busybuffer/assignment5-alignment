@@ -19,9 +19,14 @@ Setup:
 
 Usage:
     # Together AI backend (recommended, highest RPM):
-    python scripts/alpaca_eval_annotate.py \
+    PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python scripts/alpaca_eval_annotate.py \
         --model-outputs outputs/alpaca_eval_baseline.json \
         --output-path outputs/alpaca_eval_annotated.jsonl \
+        --backend together
+        
+    PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/alpaca_eval_annotate.py \
+        --model-outputs outputs/alpaca_eval_sft.json \
+        --output-path outputs/alpaca_eval_sft_annotated.jsonl \
         --backend together
 
     # Groq backend:

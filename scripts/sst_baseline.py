@@ -50,6 +50,11 @@ Then evaluate with:
         --output-path outputs/sst_sft_annotated.jsonl \
         --use-api together
 
+    PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3 scripts/evaluate_safety.py \
+        --input-path outputs/sst_dpo_results.jsonl \
+        --output-path outputs/sst_dpo_annotated.jsonl \
+        --use-api together
+
 """
 from __future__ import annotations
 

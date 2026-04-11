@@ -25,6 +25,14 @@ Usage:
         --data-dir data/mmlu/test \
         --output-path outputs/mmlu_baseline_results.jsonl \
         --max-examples 100
+        
+    # DPO model:
+    PYTHONPATH=/Users/felicitywang/Workspace/CS336N/assignment5-alignment python3  scripts/mmlu_baseline.py \
+        --model outputs/sft/llama-3.1-8b-sft \
+        --data-dir data/mmlu/test \
+        --output-path outputs/mmlu_dpo_results.jsonl \
+        --prompt-format sft
+
 """
 from __future__ import annotations
 
@@ -155,6 +163,10 @@ def main(
     if prompt_format not in ("zero_shot", "sft"):
         typer.echo(f"Unknown prompt format '{prompt_format}'. Choose 'zero_shot' or 'sft'.")
         raise typer.Exit(1)
+
+    if output_path.exists():
+        typer.echo(f"Output already exists at {output_path}, skipping.")
+        raise typer.Exit(0)
 
     typer.echo(f"Prompt format: {prompt_format}")
     typer.echo(f"Loading MMLU examples from {data_dir} ...")
